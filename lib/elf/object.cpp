@@ -1,10 +1,32 @@
 
+#include <cassert>
 #include <cstring>
 #include <elf.h>
 #include <lewis/elf/object.hpp>
 #include <lewis/elf/utils.hpp>
 
 namespace lewis::elf {
+
+void Object::insertFragment(std::unique_ptr<Fragment> fragment) {
+    _fragments.push_back(std::move(fragment));
+}
+
+void Object::replaceFragment(Fragment *from, std::unique_ptr<Fragment> to) {
+    // TODO: Add a more generic mechanism to identify uses of a fragment.
+    if(phdrsFragment == from)
+        phdrsFragment = to.get();
+    if(shdrsFragment == from)
+        shdrsFragment = to.get();
+
+    for(auto &slot : _fragments) {
+        if(slot.get() != from)
+            continue;
+        slot = std::move(to);
+        return;
+    }
+
+    assert(!"replaceFragment(): Fragment does not exist");
+}
 
 void Object::emitTo(FILE *stream) {
     auto emit = [&] (const std::vector<uint8_t> &buffer) {
@@ -28,21 +50,30 @@ void Object::emitTo(FILE *stream) {
     encode8(ehdr, 0);
 
     // Write the remaining EHDR fields.
+    assert(shdrsFragment);
     encodeHalf(ehdr, ET_DYN); // e_type
     encodeHalf(ehdr, EM_X86_64); // e_machine
     encodeWord(ehdr, 1); // e_version
     encodeAddr(ehdr, 0); // e_entry
-    encodeOff(ehdr, 0); // e_phoff
-    encodeOff(ehdr, 0); // e_shoff
+    encodeOff(ehdr, phdrsFragment->fileOffset.value()); // e_phoff
+    encodeOff(ehdr, shdrsFragment->fileOffset.value()); // e_shoff
     encodeWord(ehdr, 0); // e_flags
+    // TODO: Do not hardcode this size.
     encodeHalf(ehdr, 64); // e_ehsize
-    encodeHalf(ehdr, 0); // e_phentsize
-    encodeHalf(ehdr, 0); // e_phnum
-    encodeHalf(ehdr, 0); // e_shentsize
-    encodeHalf(ehdr, 0); // e_shnum
+    encodeHalf(ehdr, sizeof(Elf64_Phdr)); // e_phentsize
+    // TODO: # of PHDRs should be independent of # of sections.
+    encodeHalf(ehdr, fragments().size()); // e_phnum
+    encodeHalf(ehdr, sizeof(Elf64_Shdr)); // e_shentsize
+    encodeHalf(ehdr, fragments().size()); // e_shnum
     encodeHalf(ehdr, 0); // e_shstrndx
 
     emit(ehdr.buffer);
+
+    for(auto it = _fragments.begin(); it != _fragments.end(); ++it) {
+        auto section = dynamic_cast<Section *>(it->get());
+        assert(section && "emitTo() can only handle Sections but not arbitrary Fragments");
+        emit(section->buffer);
+    }
 }
 
 } // namespace lewis::elf
