@@ -63,7 +63,7 @@ void Object::emitTo(FILE *stream) {
             throw std::runtime_error("Could not write buffer to FILE");
     };
 
-    ByteVector ehdr;
+    util::ByteVector ehdr;
 
     // Write the EHDR.e_ident field.
     encode8(ehdr, 0x7F);

@@ -2,47 +2,15 @@
 #pragma once
 
 #include <cstring>
+#include <lewis/util/byte-encode.hpp>
 
 namespace lewis::elf {
 
-struct ByteEncoder {
-    ByteEncoder(std::vector<uint8_t> *out)
-    : _out{out} { }
-
-private:
-    template<typename T>
-    void _poke(T v) {
-        auto n = _out->size();
-        _out->resize(n + sizeof(T));
-        memcpy(_out->data() + n, &v, sizeof(T));
-    }
-
-public:
-    friend void encodeChars(ByteEncoder &e, const char *v) {
-        while(*v)
-            e._poke<uint8_t>(*(v++));
-    }
-    friend void encode8(ByteEncoder &e, uint8_t v) { e._poke<uint8_t>(v); }
-    friend void encode16(ByteEncoder &e, uint16_t v) { e._poke<uint16_t>(v); }
-    friend void encode32(ByteEncoder &e, uint32_t v) { e._poke<uint32_t>(v); }
-    friend void encode64(ByteEncoder &e, uint64_t v) { e._poke<uint64_t>(v); }
-
-private:
-    std::vector<uint8_t> *_out;
-};
-
-inline void encodeAddr(ByteEncoder &e, uint64_t v) { encode64(e, v); }
-inline void encodeOff(ByteEncoder &e, uint64_t v) { encode64(e, v); }
-inline void encodeHalf(ByteEncoder &e, uint16_t v) { encode16(e, v); }
-inline void encodeWord(ByteEncoder &e, uint32_t v) { encode32(e, v); }
-inline void encodeXword(ByteEncoder &e, uint64_t v) { encode64(e, v); }
-
-struct ByteVector : ByteEncoder {
-    ByteVector()
-    : ByteEncoder{&buffer} { }
-
-    std::vector<uint8_t> buffer;
-};
+inline void encodeAddr(util::ByteEncoder &enc, uint64_t v) { encode64(enc, v); }
+inline void encodeOff(util::ByteEncoder &enc, uint64_t v) { encode64(enc, v); }
+inline void encodeHalf(util::ByteEncoder &enc, uint16_t v) { encode16(enc, v); }
+inline void encodeWord(util::ByteEncoder &enc, uint32_t v) { encode32(enc, v); }
+inline void encodeXword(util::ByteEncoder &enc, uint64_t v) { encode64(enc, v); }
 
 } // namespace lewis::elf
 

@@ -36,7 +36,7 @@ void CommitHeadersPassImpl::_commitPhdrs(PhdrsReservation *phdrs) {
         out->computedSize = phdrs->computedSize.value();
 
     for(auto section : _elf->fragments()) {
-        ByteEncoder shdr{&out->buffer};
+        util::ByteEncoder shdr{&out->buffer};
         // TODO: p_type and p_flags are only fillers.
         encodeWord(shdr, PT_LOAD); // p_type
         encodeWord(shdr, PF_R | PF_X); // p_flags
@@ -61,7 +61,7 @@ void CommitHeadersPassImpl::_commitShdrs(ShdrsReservation *shdrs) {
         out->fileOffset = shdrs->fileOffset.value();
 
     for(auto section : _elf->fragments()) {
-        ByteEncoder shdr{&out->buffer};
+        util::ByteEncoder shdr{&out->buffer};
         // TODO: Emit section names.
         encodeWord(shdr, 0); // sh_name
         // TODO: sh_type and sh_flags are only fillers.
