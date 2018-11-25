@@ -73,9 +73,8 @@ void Object::emitTo(FILE *stream) {
     encode8(ehdr, 1); // ELF version; so far, there is only one.
     encode8(ehdr, ELFOSABI_SYSV);
     encode8(ehdr, 0); // ABI version. For the SysV ABI, this is not defined.
-    for(int i = 0; i < 6; i++) // Encode a few padding bytes.
+    for(int i = 0; i < 7; i++) // The remaining e_ident bytes are padding.
         encode8(ehdr, 0);
-    encode8(ehdr, 0);
 
     // Write the remaining EHDR fields.
     assert(shdrsFragment);
