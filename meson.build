@@ -14,6 +14,7 @@ lib = shared_library('lewis',
         'lib/elf/commit-headers-pass.cpp',
         'lib/elf/layout-pass.cpp',
         'lib/elf/object.cpp',
+        'lib/target-x86_64/mc-emitter.cpp'
     ],
     include_directories: incl,
     dependencies: frigg_dep)

@@ -2,17 +2,15 @@
 #include <stdexcept>
 #include <lewis/elf/object.hpp>
 #include <lewis/elf/passes.hpp>
+#include <lewis/target-x86_64/mc-emitter.hpp>
 
 int main() {
-    lewis::elf::Object elf;
+    lewis::BasicBlock bb;
+    bb.insertInstruction(std::make_unique<lewis::targets::x86_64::LoadConstCode>());
 
-    // Create some section with filler contents.
-    auto section = std::make_unique<lewis::elf::Section>();
-    section->buffer.push_back(0xDE);
-    section->buffer.push_back(0xAD);
-    section->buffer.push_back(0xBE);
-    section->buffer.push_back(0xEF);
-    elf.insertFragment(std::move(section));
+    lewis::elf::Object elf;
+    lewis::targets::x86_64::MachineCodeEmitter mce{&bb, &elf};
+    mce.run();
 
     // Create headers, layout the file, finalize headers.
     auto headers_pass = lewis::elf::CreateHeadersPass::create(&elf);
