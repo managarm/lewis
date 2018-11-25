@@ -1,5 +1,6 @@
 
 #include <cassert>
+#include <elf.h>
 #include <lewis/target-x86_64/mc-emitter.hpp>
 #include <lewis/util/byte-encode.hpp>
 
@@ -12,6 +13,8 @@ void MachineCodeEmitter::run() {
     auto textString = std::make_unique<lewis::elf::String>(".text");
     auto newSection = std::make_unique<lewis::elf::Section>();
     newSection->name = textString.get();
+    newSection->type = SHT_PROGBITS;
+    newSection->flags = SHF_ALLOC | SHF_EXECINSTR;
 
     auto textSection = newSection.get();
     _elf->insertFragment(std::move(newSection));

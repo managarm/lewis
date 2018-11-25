@@ -83,6 +83,8 @@ struct Fragment {
 
 public:
     String *name = nullptr;
+    uint32_t type = 0;
+    uint32_t flags = 0;
     std::optional<size_t> designatedIndex;
     std::optional<uintptr_t> fileOffset;
     std::optional<uintptr_t> virtualAdress;

@@ -1,4 +1,5 @@
 
+#include <elf.h>
 #include <lewis/elf/passes.hpp>
 #include <lewis/elf/utils.hpp>
 
@@ -24,6 +25,8 @@ void CreateHeadersPassImpl::run() {
     _elf->insertFragment(std::move(shdrs));
 
     auto strtab = std::make_unique<StringTableReservation>();
+    strtab->type = SHT_STRTAB;
+    strtab->flags = SHF_ALLOC;
     _elf->stringTableFragment = strtab.get();
     _elf->insertFragment(std::move(strtab));
 }

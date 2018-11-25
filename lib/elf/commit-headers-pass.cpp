@@ -34,6 +34,9 @@ void CommitHeadersPassImpl::run() {
 }
 
 void CommitHeadersPassImpl::_inheritFragment(Fragment *out, Fragment *source) {
+    out->type = source->type;
+    out->flags = source->flags;
+
     if(source->designatedIndex.has_value())
         out->designatedIndex = source->designatedIndex.value();
     if(source->fileOffset.has_value())
@@ -78,9 +81,9 @@ void CommitHeadersPassImpl::_commitShdrs(ShdrsReservation *shdrs) {
 
         encodeWord(section, nameIndex); // sh_name
         // TODO: sh_type and sh_flags are only fillers.
-        encodeWord(section, SHT_PROGBITS); // sh_type
-        encodeXword(section, SHF_ALLOC | SHF_EXECINSTR); // sh_flags
-        encodeAddr(section, 0); // sh_addr
+        encodeWord(section, fragment->type); // sh_type
+        encodeXword(section, fragment->flags); // sh_flags
+        encodeAddr(section, fragment->fileOffset.value()); // sh_addr
         encodeOff(section, fragment->fileOffset.value()); // sh_offset
         encodeXword(section, fragment->computedSize.value()); // sh_size
         encodeWord(section, 0); // sh_link
