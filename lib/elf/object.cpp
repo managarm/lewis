@@ -7,16 +7,44 @@
 
 namespace lewis::elf {
 
+// --------------------------------------------------------------------------------------
+// FragmentUse class
+// --------------------------------------------------------------------------------------
+
+void FragmentUse::assign(Fragment *f) {
+    if(_ref) {
+        auto it = _ref->_useList.iterator_to(this);
+        _ref->_useList.erase(it);
+    }
+
+    if(f)
+        f->_useList.push_back(this);
+    _ref = f;
+}
+
+// --------------------------------------------------------------------------------------
+// Fragment class
+// --------------------------------------------------------------------------------------
+
+void Fragment::replaceAllUses(Fragment *other) {
+    auto it = _useList.begin();
+    while(it != _useList.end()) {
+        FragmentUse *use = *it;
+        ++it;
+        use->assign(other);
+    }
+}
+
+// --------------------------------------------------------------------------------------
+// Object class
+// --------------------------------------------------------------------------------------
+
 void Object::insertFragment(std::unique_ptr<Fragment> fragment) {
     _fragments.push_back(std::move(fragment));
 }
 
 void Object::replaceFragment(Fragment *from, std::unique_ptr<Fragment> to) {
-    // TODO: Add a more generic mechanism to identify uses of a fragment.
-    if(phdrsFragment == from)
-        phdrsFragment = to.get();
-    if(shdrsFragment == from)
-        shdrsFragment = to.get();
+    from->replaceAllUses(to.get());
 
     for(auto &slot : _fragments) {
         if(slot.get() != from)

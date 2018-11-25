@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <frg/list.hpp>
 #include <lewis/hierarchy.hpp>
 
 namespace lewis::elf {
@@ -19,13 +20,61 @@ namespace fragment_kinds {
     };
 }
 
+struct Fragment;
+
+// Represents a single "use" of a Fragment. This is necessary to support Fragment replacement.
+// For convenience, this class also has a Fragment pointer-like interface.
+struct FragmentUse {
+    friend struct Fragment;
+
+    FragmentUse()
+    : _ref{nullptr} { }
+
+    FragmentUse(const FragmentUse &) = delete;
+
+    FragmentUse &operator= (const FragmentUse &) = delete;
+
+    void assign(Fragment *f);
+
+    Fragment *get() {
+        return _ref;
+    }
+
+    // The following operators define the pointer-like interface.
+
+    FragmentUse &operator= (Fragment *f) {
+        assign(f);
+        return *this;
+    }
+
+    bool operator== (Fragment *f) { return _ref == f; }
+    bool operator!= (Fragment *f) { return _ref != f; }
+
+    explicit operator bool () { return _ref; }
+
+    Fragment &operator* () { return *_ref; }
+    Fragment *operator-> () { return _ref; }
+
+private:
+    Fragment *_ref;
+    frg::default_list_hook<FragmentUse> _useListHook;
+};
+
 // Represents a fragment of an ELF file.
 // Before ELF emission, all Fragments need to be converted to Sections.
 struct Fragment {
+    friend struct FragmentUse;
+
     Fragment(FragmentKindType kind_)
     : kind{kind_} { }
 
+    Fragment(const Fragment &) = delete;
+
     virtual ~Fragment() = default;
+
+    Fragment &operator= (const Fragment &) = delete;
+
+    void replaceAllUses(Fragment *other);
 
     const FragmentKindType kind;
 
@@ -33,6 +82,16 @@ public:
     std::optional<uintptr_t> fileOffset;
     std::optional<uintptr_t> virtualAdress;
     std::optional<uintptr_t> computedSize;
+
+private:
+    frg::intrusive_list<
+        FragmentUse,
+        frg::locate_member<
+            FragmentUse,
+            frg::default_list_hook<FragmentUse>,
+            &FragmentUse::_useListHook
+        >
+    > _useList;
 };
 
 template<FragmentKindType K>
@@ -126,8 +185,8 @@ struct Object {
 
     void emitTo(FILE *stream);
 
-    Fragment *phdrsFragment = nullptr;
-    Fragment *shdrsFragment = nullptr;
+    FragmentUse phdrsFragment;
+    FragmentUse shdrsFragment;
 
 private:
     std::vector<std::unique_ptr<Fragment>> _fragments;
