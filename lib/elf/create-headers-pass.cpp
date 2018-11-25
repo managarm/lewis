@@ -22,6 +22,10 @@ void CreateHeadersPassImpl::run() {
     auto shdrs = std::make_unique<ShdrsReservation>();
     _elf->shdrsFragment = shdrs.get();
     _elf->insertFragment(std::move(shdrs));
+
+    auto strtab = std::make_unique<StringTableReservation>();
+    _elf->stringTableFragment = strtab.get();
+    _elf->insertFragment(std::move(strtab));
 }
 
 std::unique_ptr<CreateHeadersPass> CreateHeadersPass::create(Object *elf) {

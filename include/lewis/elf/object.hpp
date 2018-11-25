@@ -16,7 +16,8 @@ namespace fragment_kinds {
         null,
         section,
         phdrsReservation,
-        shdrsReservation
+        shdrsReservation,
+        stringTableReservation
     };
 }
 
@@ -60,6 +61,8 @@ private:
     frg::default_list_hook<FragmentUse> _useListHook;
 };
 
+struct String;
+
 // Represents a fragment of an ELF file.
 // Before ELF emission, all Fragments need to be converted to Sections.
 struct Fragment {
@@ -79,6 +82,8 @@ struct Fragment {
     const FragmentKindType kind;
 
 public:
+    String *name = nullptr;
+    std::optional<size_t> designatedIndex;
     std::optional<uintptr_t> fileOffset;
     std::optional<uintptr_t> virtualAdress;
     std::optional<uintptr_t> computedSize;
@@ -131,7 +136,25 @@ struct ShdrsReservation : Reservation,
     : Reservation{fragment_kinds::shdrsReservation} { }
 };
 
+struct StringTableReservation : Reservation,
+        CastableIfFragmentKind<StringTableReservation, fragment_kinds::stringTableReservation> {
+    StringTableReservation()
+    : Reservation{fragment_kinds::stringTableReservation} { }
+};
+
+struct String {
+    String(std::string buffer_)
+    : buffer{std::move(buffer_)} { }
+
+    const std::string buffer;
+    std::optional<size_t> designatedOffset;
+};
+
 struct Object {
+    // -------------------------------------------------------------------------------------
+    // Fragment management.
+    // -------------------------------------------------------------------------------------
+
     struct FragmentIterator {
     private:
         using Base = std::vector<std::unique_ptr<Fragment>>::iterator;
@@ -183,13 +206,72 @@ struct Object {
         return FragmentRange{this};
     }
 
-    void emitTo(FILE *stream);
-
     FragmentUse phdrsFragment;
     FragmentUse shdrsFragment;
+    FragmentUse stringTableFragment;
+
+    // -------------------------------------------------------------------------------------
+    // String management.
+    // -------------------------------------------------------------------------------------
+
+    struct StringIterator {
+    private:
+        using Base = std::vector<std::unique_ptr<String>>::iterator;
+
+    public:
+        StringIterator(Base b)
+        : _b{b} { }
+
+        bool operator!= (const StringIterator &other) const {
+            return _b != other._b;
+        }
+
+        String *operator* () const {
+            return _b->get();
+        }
+
+        void operator++ () {
+            ++_b;
+        }
+
+    private:
+        Base _b;
+    };
+
+    struct StringRange {
+        StringRange(Object *elf)
+        : _elf{elf} { }
+
+        size_t size() {
+            return _elf->_strings.size();
+        }
+
+        StringIterator begin() {
+            return StringIterator{_elf->_strings.begin()};
+        }
+        StringIterator end() {
+            return StringIterator{_elf->_strings.end()};
+        }
+
+    private:
+        Object *_elf;
+    };
+
+    void addString(std::unique_ptr<String> string);
+
+    StringRange strings() {
+        return StringRange{this};
+    }
+
+    // -------------------------------------------------------------------------------------
+    // Misc. functions.
+    // -------------------------------------------------------------------------------------
+
+    void emitTo(FILE *stream);
 
 private:
     std::vector<std::unique_ptr<Fragment>> _fragments;
+    std::vector<std::unique_ptr<String>> _strings;
 };
 
 } // namespace lewis::elf

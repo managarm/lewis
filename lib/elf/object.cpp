@@ -43,6 +43,10 @@ void Object::insertFragment(std::unique_ptr<Fragment> fragment) {
     _fragments.push_back(std::move(fragment));
 }
 
+void Object::addString(std::unique_ptr<String> string) {
+    _strings.push_back(std::move(string));
+}
+
 void Object::replaceFragment(Fragment *from, std::unique_ptr<Fragment> to) {
     from->replaceAllUses(to.get());
 
@@ -77,7 +81,9 @@ void Object::emitTo(FILE *stream) {
         encode8(ehdr, 0);
 
     // Write the remaining EHDR fields.
+    assert(phdrsFragment);
     assert(shdrsFragment);
+    assert(stringTableFragment);
     encodeHalf(ehdr, ET_DYN); // e_type
     encodeHalf(ehdr, EM_X86_64); // e_machine
     encodeWord(ehdr, 1); // e_version
@@ -92,7 +98,7 @@ void Object::emitTo(FILE *stream) {
     encodeHalf(ehdr, fragments().size()); // e_phnum
     encodeHalf(ehdr, sizeof(Elf64_Shdr)); // e_shentsize
     encodeHalf(ehdr, fragments().size()); // e_shnum
-    encodeHalf(ehdr, 0); // e_shstrndx
+    encodeHalf(ehdr, stringTableFragment->designatedIndex.value()); // e_shstrndx
 
     emit(ehdr.buffer);
 
