@@ -40,6 +40,8 @@ void Fragment::replaceAllUses(Fragment *other) {
 // --------------------------------------------------------------------------------------
 
 void Object::insertFragment(std::unique_ptr<Fragment> fragment) {
+    if(fragment->isSection())
+        _numSections++;
     _fragments.push_back(std::move(fragment));
 }
 
@@ -48,6 +50,9 @@ void Object::addString(std::unique_ptr<String> string) {
 }
 
 void Object::replaceFragment(Fragment *from, std::unique_ptr<Fragment> to) {
+    assert((from->isSection() && to->isSection())
+            || (!from->isSection() && !to->isSection()));
+
     from->replaceAllUses(to.get());
 
     for(auto &slot : _fragments) {

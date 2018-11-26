@@ -16,6 +16,7 @@ namespace fragment_kinds {
         null,
         phdrsFragment,
         shdrsFragment,
+        // All Fragments are byteSection are considered Sections (see Fragment::isSection()).
         byteSection,
         stringTableSection
     };
@@ -76,6 +77,10 @@ struct Fragment {
     virtual ~Fragment() = default;
 
     Fragment &operator= (const Fragment &) = delete;
+
+    bool isSection() {
+        return kind >= fragment_kinds::byteSection;
+    }
 
     void replaceAllUses(Fragment *other);
 
@@ -179,10 +184,6 @@ struct Object {
         FragmentRange(Object *elf)
         : _elf{elf} { }
 
-        size_t size() {
-            return _elf->_fragments.size();
-        }
-
         FragmentIterator begin() {
             return FragmentIterator{_elf->_fragments.begin()};
         }
@@ -200,6 +201,14 @@ struct Object {
 
     FragmentRange fragments() {
         return FragmentRange{this};
+    }
+
+    size_t numberOfFragments() {
+        return _fragments.size();
+    }
+
+    size_t numberOfSections() {
+        return _numSections;
     }
 
     FragmentUse phdrsFragment;
@@ -238,10 +247,6 @@ struct Object {
         StringRange(Object *elf)
         : _elf{elf} { }
 
-        size_t size() {
-            return _elf->_strings.size();
-        }
-
         StringIterator begin() {
             return StringIterator{_elf->_strings.begin()};
         }
@@ -262,6 +267,7 @@ struct Object {
 private:
     std::vector<std::unique_ptr<Fragment>> _fragments;
     std::vector<std::unique_ptr<String>> _strings;
+    size_t _numSections = 0;
 };
 
 } // namespace lewis::elf

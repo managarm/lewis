@@ -50,9 +50,9 @@ void FileEmitterImpl::run() {
     encodeHalf(ehdr, 64); // e_ehsize
     encodeHalf(ehdr, sizeof(Elf64_Phdr)); // e_phentsize
     // TODO: # of PHDRs should be independent of # of sections.
-    encodeHalf(ehdr, _elf->fragments().size()); // e_phnum
+    encodeHalf(ehdr, _elf->numberOfFragments()); // e_phnum
     encodeHalf(ehdr, sizeof(Elf64_Shdr)); // e_shentsize
-    encodeHalf(ehdr, _elf->fragments().size()); // e_shnum
+    encodeHalf(ehdr, _elf->numberOfSections()); // e_shnum
     encodeHalf(ehdr, _elf->stringTableFragment->designatedIndex.value()); // e_shstrndx
 
     for(auto fragment : _elf->fragments()) {
@@ -92,6 +92,9 @@ void FileEmitterImpl::_emitShdrs(ShdrsFragment *shdrs) {
     util::ByteEncoder section{&buffer};
 
     for(auto fragment : _elf->fragments()) {
+        if(!fragment->isSection())
+            continue;
+
         size_t nameIndex = 0;
         if(fragment->name) {
             assert(fragment->name->designatedOffset.has_value()

@@ -25,9 +25,9 @@ void LayoutPassImpl::run() {
         size_t size;
         if(auto phdrs = hierarchy_cast<PhdrsFragment *>(fragment); phdrs) {
             // TODO: # of PHDRs should be independent of # of sections.
-            size = _elf->fragments().size() * sizeof(Elf64_Phdr);
+            size = _elf->numberOfFragments() * sizeof(Elf64_Phdr);
         }else if(auto shdrs = hierarchy_cast<ShdrsFragment *>(fragment); shdrs) {
-            size = _elf->fragments().size() * sizeof(Elf64_Shdr);
+            size = _elf->numberOfSections() * sizeof(Elf64_Shdr);
         }else if(auto strtab = hierarchy_cast<StringTableSection *>(fragment); strtab) {
             size = 1; // ELF uses index zero for non-existent strings.
             for(auto string : _elf->strings()) {
@@ -42,7 +42,8 @@ void LayoutPassImpl::run() {
 
         std::cout << "Laying out fragment " << fragment << " at " << (void *)offset
                 << ", size: " << (void *)size << std::endl;
-        fragment->designatedIndex = sectionIndex++;
+        if(fragment->isSection())
+            fragment->designatedIndex = sectionIndex++;
         fragment->fileOffset = offset;
         fragment->computedSize = size;
         offset += size;
