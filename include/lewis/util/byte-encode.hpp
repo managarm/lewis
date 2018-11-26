@@ -31,12 +31,5 @@ private:
     std::vector<uint8_t> *_out;
 };
 
-struct ByteVector : ByteEncoder {
-    ByteVector()
-    : ByteEncoder{&buffer} { }
-
-    std::vector<uint8_t> buffer;
-};
-
 } // namespace lewis::util
 
