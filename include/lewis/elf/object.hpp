@@ -14,10 +14,10 @@ using FragmentKindType = uint32_t;
 namespace fragment_kinds {
     enum : FragmentKindType {
         null,
-        section,
-        phdrsReservation,
-        shdrsReservation,
-        stringTableReservation
+        phdrsFragment,
+        shdrsFragment,
+        byteSection,
+        stringTableSection
     };
 }
 
@@ -111,37 +111,31 @@ struct IsFragmentKind {
 template<typename T, FragmentKindType K>
 struct CastableIfFragmentKind : Castable<T, IsFragmentKind<K>> { };
 
+struct PhdrsFragment : Fragment,
+        CastableIfFragmentKind<PhdrsFragment, fragment_kinds::phdrsFragment> {
+    PhdrsFragment()
+    : Fragment{fragment_kinds::phdrsFragment} { }
+};
+
+struct ShdrsFragment : Fragment,
+        CastableIfFragmentKind<ShdrsFragment, fragment_kinds::shdrsFragment> {
+    ShdrsFragment()
+    : Fragment{fragment_kinds::shdrsFragment} { }
+};
+
 // Fragment that stores actual contents (i.e. some binary buffer).
-struct Section : Fragment,
-        CastableIfFragmentKind<Section, fragment_kinds::section> {
-    Section()
-    : Fragment{fragment_kinds::section} { }
+struct ByteSection : Fragment,
+        CastableIfFragmentKind<ByteSection, fragment_kinds::byteSection> {
+    ByteSection()
+    : Fragment{fragment_kinds::byteSection} { }
 
     std::vector<uint8_t> buffer;
 };
 
-// Fragment that reserves space in an ELF object but does not store contents.
-struct Reservation : Fragment {
-    Reservation(FragmentKindType kind_)
-    : Fragment{kind_} { }
-};
-
-struct PhdrsReservation : Reservation,
-        CastableIfFragmentKind<PhdrsReservation, fragment_kinds::phdrsReservation> {
-    PhdrsReservation()
-    : Reservation{fragment_kinds::phdrsReservation} { }
-};
-
-struct ShdrsReservation : Reservation,
-        CastableIfFragmentKind<ShdrsReservation, fragment_kinds::shdrsReservation> {
-    ShdrsReservation()
-    : Reservation{fragment_kinds::shdrsReservation} { }
-};
-
-struct StringTableReservation : Reservation,
-        CastableIfFragmentKind<StringTableReservation, fragment_kinds::stringTableReservation> {
-    StringTableReservation()
-    : Reservation{fragment_kinds::stringTableReservation} { }
+struct StringTableSection : Fragment,
+        CastableIfFragmentKind<StringTableSection, fragment_kinds::stringTableSection> {
+    StringTableSection()
+    : Fragment{fragment_kinds::stringTableSection} { }
 };
 
 struct String {

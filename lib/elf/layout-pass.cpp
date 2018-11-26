@@ -23,19 +23,19 @@ void LayoutPassImpl::run() {
     std::cout << "Running LayoutPass" << std::endl;
     for(auto fragment : _elf->fragments()) {
         size_t size;
-        if(auto phdrs = hierarchy_cast<PhdrsReservation *>(fragment); phdrs) {
+        if(auto phdrs = hierarchy_cast<PhdrsFragment *>(fragment); phdrs) {
             // TODO: # of PHDRs should be independent of # of sections.
             size = _elf->fragments().size() * sizeof(Elf64_Phdr);
-        }else if(auto shdrs = hierarchy_cast<ShdrsReservation *>(fragment); shdrs) {
+        }else if(auto shdrs = hierarchy_cast<ShdrsFragment *>(fragment); shdrs) {
             size = _elf->fragments().size() * sizeof(Elf64_Shdr);
-        }else if(auto strtab = hierarchy_cast<StringTableReservation *>(fragment); strtab) {
+        }else if(auto strtab = hierarchy_cast<StringTableSection *>(fragment); strtab) {
             size = 1; // ELF uses index zero for non-existent strings.
             for(auto string : _elf->strings()) {
                 string->designatedOffset = size;
                 size += string->buffer.size() + 1;
             }
         }else{
-            auto section = hierarchy_cast<Section *>(fragment);
+            auto section = hierarchy_cast<ByteSection *>(fragment);
             assert(section && "Unexpected ELF fragment");
             size = section->buffer.size();
         }

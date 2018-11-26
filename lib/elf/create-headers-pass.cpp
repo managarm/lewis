@@ -16,15 +16,15 @@ private:
 };
 
 void CreateHeadersPassImpl::run() {
-    auto phdrs = std::make_unique<PhdrsReservation>();
+    auto phdrs = std::make_unique<PhdrsFragment>();
     _elf->phdrsFragment = phdrs.get();
     _elf->insertFragment(std::move(phdrs));
 
-    auto shdrs = std::make_unique<ShdrsReservation>();
+    auto shdrs = std::make_unique<ShdrsFragment>();
     _elf->shdrsFragment = shdrs.get();
     _elf->insertFragment(std::move(shdrs));
 
-    auto strtab = std::make_unique<StringTableReservation>();
+    auto strtab = std::make_unique<StringTableSection>();
     strtab->type = SHT_STRTAB;
     strtab->flags = SHF_ALLOC;
     _elf->stringTableFragment = strtab.get();

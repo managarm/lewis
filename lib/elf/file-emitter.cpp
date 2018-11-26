@@ -14,9 +14,9 @@ struct FileEmitterImpl : FileEmitter {
     void run() override;
 
 private:
-    void _emitPhdrs(PhdrsReservation *phdrs);
-    void _emitShdrs(ShdrsReservation *shdrs);
-    void _emitStringTable(StringTableReservation *strtab);
+    void _emitPhdrs(PhdrsFragment *phdrs);
+    void _emitShdrs(ShdrsFragment *shdrs);
+    void _emitStringTable(StringTableSection *strtab);
 
     Object *_elf;
 };
@@ -56,21 +56,21 @@ void FileEmitterImpl::run() {
     encodeHalf(ehdr, _elf->stringTableFragment->designatedIndex.value()); // e_shstrndx
 
     for(auto fragment : _elf->fragments()) {
-        if(auto phdrs = hierarchy_cast<PhdrsReservation *>(fragment); phdrs) {
+        if(auto phdrs = hierarchy_cast<PhdrsFragment *>(fragment); phdrs) {
             _emitPhdrs(phdrs);
-        }else if(auto shdrs = hierarchy_cast<ShdrsReservation *>(fragment); shdrs) {
+        }else if(auto shdrs = hierarchy_cast<ShdrsFragment *>(fragment); shdrs) {
             _emitShdrs(shdrs);
-        }else if(auto strtab = hierarchy_cast<StringTableReservation *>(fragment); strtab) {
+        }else if(auto strtab = hierarchy_cast<StringTableSection *>(fragment); strtab) {
             _emitStringTable(strtab);
         }else{
-            auto section = hierarchy_cast<Section *>(fragment);
+            auto section = hierarchy_cast<ByteSection *>(fragment);
             assert(section && "Unexpected Fragment for FileEmitter");
             buffer.insert(buffer.end(), section->buffer.begin(), section->buffer.end());
         }
     }
 }
 
-void FileEmitterImpl::_emitPhdrs(PhdrsReservation *phdrs) {
+void FileEmitterImpl::_emitPhdrs(PhdrsFragment *phdrs) {
     util::ByteEncoder section{&buffer};
 
     for(auto fragment : _elf->fragments()) {
@@ -88,7 +88,7 @@ void FileEmitterImpl::_emitPhdrs(PhdrsReservation *phdrs) {
     }
 }
 
-void FileEmitterImpl::_emitShdrs(ShdrsReservation *shdrs) {
+void FileEmitterImpl::_emitShdrs(ShdrsFragment *shdrs) {
     util::ByteEncoder section{&buffer};
 
     for(auto fragment : _elf->fragments()) {
@@ -113,7 +113,7 @@ void FileEmitterImpl::_emitShdrs(ShdrsReservation *shdrs) {
     }
 }
 
-void FileEmitterImpl::_emitStringTable(StringTableReservation *strtab) {
+void FileEmitterImpl::_emitStringTable(StringTableSection *strtab) {
     util::ByteEncoder section{&buffer};
 
     encode8(section, 0); // ELF uses index zero for non-existent strings.

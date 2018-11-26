@@ -11,7 +11,7 @@ MachineCodeEmitter::MachineCodeEmitter(BasicBlock *bb, elf::Object *elf)
 
 void MachineCodeEmitter::run() {
     auto textString = std::make_unique<lewis::elf::String>(".text");
-    auto newSection = std::make_unique<lewis::elf::Section>();
+    auto newSection = std::make_unique<lewis::elf::ByteSection>();
     newSection->name = textString.get();
     newSection->type = SHT_PROGBITS;
     newSection->flags = SHF_ALLOC | SHF_EXECINSTR;
