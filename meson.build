@@ -11,7 +11,7 @@ incl = include_directories('include')
 lib = shared_library('lewis',
     [
         'lib/elf/create-headers-pass.cpp',
-        'lib/elf/commit-headers-pass.cpp',
+        'lib/elf/file-emitter.cpp',
         'lib/elf/layout-pass.cpp',
         'lib/elf/object.cpp',
         'lib/target-x86_64/mc-emitter.cpp'

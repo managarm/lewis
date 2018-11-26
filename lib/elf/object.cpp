@@ -60,54 +60,5 @@ void Object::replaceFragment(Fragment *from, std::unique_ptr<Fragment> to) {
     assert(!"replaceFragment(): Fragment does not exist");
 }
 
-void Object::emitTo(FILE *stream) {
-    auto emit = [&] (const std::vector<uint8_t> &buffer) {
-        auto written = fwrite(buffer.data(), sizeof(uint8_t), buffer.size(), stream);
-        if(written != buffer.size())
-            throw std::runtime_error("Could not write buffer to FILE");
-    };
-
-    util::ByteVector ehdr;
-
-    // Write the EHDR.e_ident field.
-    encode8(ehdr, 0x7F);
-    encodeChars(ehdr, "ELF");
-    encode8(ehdr, ELFCLASS64);
-    encode8(ehdr, ELFDATA2LSB);
-    encode8(ehdr, 1); // ELF version; so far, there is only one.
-    encode8(ehdr, ELFOSABI_SYSV);
-    encode8(ehdr, 0); // ABI version. For the SysV ABI, this is not defined.
-    for(int i = 0; i < 7; i++) // The remaining e_ident bytes are padding.
-        encode8(ehdr, 0);
-
-    // Write the remaining EHDR fields.
-    assert(phdrsFragment);
-    assert(shdrsFragment);
-    assert(stringTableFragment);
-    encodeHalf(ehdr, ET_DYN); // e_type
-    encodeHalf(ehdr, EM_X86_64); // e_machine
-    encodeWord(ehdr, 1); // e_version
-    encodeAddr(ehdr, 0); // e_entry
-    encodeOff(ehdr, phdrsFragment->fileOffset.value()); // e_phoff
-    encodeOff(ehdr, shdrsFragment->fileOffset.value()); // e_shoff
-    encodeWord(ehdr, 0); // e_flags
-    // TODO: Do not hardcode this size.
-    encodeHalf(ehdr, 64); // e_ehsize
-    encodeHalf(ehdr, sizeof(Elf64_Phdr)); // e_phentsize
-    // TODO: # of PHDRs should be independent of # of sections.
-    encodeHalf(ehdr, fragments().size()); // e_phnum
-    encodeHalf(ehdr, sizeof(Elf64_Shdr)); // e_shentsize
-    encodeHalf(ehdr, fragments().size()); // e_shnum
-    encodeHalf(ehdr, stringTableFragment->designatedIndex.value()); // e_shstrndx
-
-    emit(ehdr.buffer);
-
-    for(auto it = _fragments.begin(); it != _fragments.end(); ++it) {
-        auto section = dynamic_cast<Section *>(it->get());
-        assert(section && "emitTo() can only handle Sections but not arbitrary Fragments");
-        emit(section->buffer);
-    }
-}
-
 } // namespace lewis::elf
 

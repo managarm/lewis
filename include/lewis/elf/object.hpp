@@ -265,12 +265,6 @@ struct Object {
         return StringRange{this};
     }
 
-    // -------------------------------------------------------------------------------------
-    // Misc. functions.
-    // -------------------------------------------------------------------------------------
-
-    void emitTo(FILE *stream);
-
 private:
     std::vector<std::unique_ptr<Fragment>> _fragments;
     std::vector<std::unique_ptr<String>> _strings;

@@ -24,11 +24,5 @@ struct LayoutPass : ObjectPass {
     static std::unique_ptr<LayoutPass> create(Object *elf);
 };
 
-// Commits header Reservations to actual Sections.
-// This requires  layout (see LayoutPass).
-struct CommitHeadersPass : ObjectPass {
-    static std::unique_ptr<CommitHeadersPass> create(Object *elf);
-};
-
 } // namespace lewis::elf
 
