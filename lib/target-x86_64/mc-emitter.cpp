@@ -24,9 +24,9 @@ void MachineCodeEmitter::run() {
 
     util::ByteEncoder text{&textSection->buffer};
     for(auto inst : _bb->instructions()) {
-        if(auto code = hierarchy_cast<LoadConstCode *>(inst); code) {
+        if(auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
             encode8(text, 0xB8);
-            encode32(text, 0xDEADBEEF);
+            encode32(text, movMC->value);
         }else{
             assert(!"Unexpected machine code instruction");
         }

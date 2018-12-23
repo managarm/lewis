@@ -1,0 +1,17 @@
+
+#pragma once
+
+#include <memory>
+#include <lewis/passes.hpp>
+
+namespace lewis::targets::x86_64 {
+
+// The following passes are implemented using Pimpl.
+
+// Lower code from generic IR to x86 IR.
+struct LowerCodePass : BasicBlockPass {
+    static std::unique_ptr<LowerCodePass> create(BasicBlock *bb);
+};
+
+} // namespace lewis::targets::x86_64
+

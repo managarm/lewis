@@ -3,11 +3,16 @@
 #include <lewis/elf/object.hpp>
 #include <lewis/elf/passes.hpp>
 #include <lewis/elf/file-emitter.hpp>
+#include <lewis/target-x86_64/arch-passes.hpp>
 #include <lewis/target-x86_64/mc-emitter.hpp>
 
 int main() {
     lewis::BasicBlock bb;
-    bb.insertInstruction(std::make_unique<lewis::targets::x86_64::LoadConstCode>());
+    bb.insertInstruction(std::make_unique<lewis::LoadConstInstruction>(42));
+    bb.insertInstruction(std::make_unique<lewis::LoadConstInstruction>(0xF00));
+
+    auto lower = lewis::targets::x86_64::LowerCodePass::create(&bb);
+    lower->run();
 
     lewis::elf::Object elf;
     lewis::targets::x86_64::MachineCodeEmitter mce{&bb, &elf};

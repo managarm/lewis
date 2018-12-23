@@ -7,12 +7,20 @@
 
 namespace lewis {
 
+//---------------------------------------------------------------------------------------
+// Instruction base class.
+//---------------------------------------------------------------------------------------
+
+// Defines an ID for each subclass of Instruction.
 using InstructionKindType = uint32_t;
 
 namespace instruction_kinds {
-    enum {
+    enum : InstructionKindType {
         null,
-        loadConstCode
+        loadConst,
+
+        // Give each architecture 16k instructions; that should be enough.
+        kindsForX86 = 1 << 14
     };
 }
 
@@ -23,6 +31,7 @@ struct Instruction {
     const InstructionKindType kind;
 };
 
+// Template magic to enable hierarchy_cast<>.
 template<InstructionKindType K>
 struct IsInstructionKind {
     bool operator() (Instruction *p) {
@@ -30,6 +39,7 @@ struct IsInstructionKind {
     }
 };
 
+// Template magic to enable hierarchy_cast<>.
 template<typename T, InstructionKindType K>
 struct CastableIfInstructionKind : Castable<T, IsInstructionKind<K>> { };
 
@@ -81,12 +91,34 @@ struct BasicBlock {
         _insts.push_back(std::move(inst));
     }
 
+    void replaceInstruction(Instruction *from, std::unique_ptr<Instruction> to) {
+        // TODO: Handle errors.
+        // TODO: Make this more efficient.
+        for(auto &inst : _insts)
+            if(inst.get() == from)
+                inst = std::move(to);
+    }
+
     InstructionRange instructions() {
         return InstructionRange{this};
     }
 
 private:
     std::vector<std::unique_ptr<Instruction>> _insts;
+};
+
+//---------------------------------------------------------------------------------------
+// Next, the actual instruction classes are defined.
+//---------------------------------------------------------------------------------------
+
+struct LoadConstInstruction
+: Instruction,
+        CastableIfInstructionKind<LoadConstInstruction, instruction_kinds::loadConst> {
+    LoadConstInstruction(uint64_t value_ = 0)
+    : Instruction{instruction_kinds::loadConst}, value{value_} { }
+
+    // TODO: This value should probably be more generic. For now, uint64_t is sufficient though.
+    uint64_t value;
 };
 
 } // namespace lewis
