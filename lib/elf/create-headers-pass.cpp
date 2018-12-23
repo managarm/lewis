@@ -16,19 +16,24 @@ private:
 };
 
 void CreateHeadersPassImpl::run() {
-    auto phdrs = std::make_unique<PhdrsFragment>();
-    _elf->phdrsFragment = phdrs.get();
-    _elf->insertFragment(std::move(phdrs));
+    auto phdrs = _elf->insertFragment(std::make_unique<PhdrsFragment>());
+    _elf->phdrsFragment = phdrs;
 
-    auto shdrs = std::make_unique<ShdrsFragment>();
-    _elf->shdrsFragment = shdrs.get();
-    _elf->insertFragment(std::move(shdrs));
+    auto shdrs = _elf->insertFragment(std::make_unique<ShdrsFragment>());
+    _elf->shdrsFragment = shdrs;
 
-    auto strtab = std::make_unique<StringTableSection>();
+    auto strtab = _elf->insertFragment(std::make_unique<StringTableSection>());
     strtab->type = SHT_STRTAB;
     strtab->flags = SHF_ALLOC;
-    _elf->stringTableFragment = strtab.get();
-    _elf->insertFragment(std::move(strtab));
+    _elf->stringTableFragment = strtab;
+    
+    auto symtab = _elf->insertFragment(std::make_unique<SymbolTableSection>());
+    symtab->type = SHT_SYMTAB;
+    symtab->flags = SHF_ALLOC;
+    symtab->sectionLink = strtab;
+    symtab->sectionInfo = 1;
+    symtab->entrySize = sizeof(Elf64_Sym);
+    _elf->symbolTableFragment = symtab;
 }
 
 std::unique_ptr<CreateHeadersPass> CreateHeadersPass::create(Object *elf) {

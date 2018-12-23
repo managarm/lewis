@@ -18,7 +18,7 @@ private:
 };
 
 void LayoutPassImpl::run() {
-    size_t sectionIndex = 0;
+    size_t sectionIndex = 1;
     size_t offset = 64; // Size of EHDR.
     std::cout << "Running LayoutPass" << std::endl;
     for(auto fragment : _elf->fragments()) {
@@ -27,13 +27,20 @@ void LayoutPassImpl::run() {
             // TODO: # of PHDRs should be independent of # of sections.
             size = _elf->numberOfFragments() * sizeof(Elf64_Phdr);
         }else if(auto shdrs = hierarchy_cast<ShdrsFragment *>(fragment); shdrs) {
-            size = _elf->numberOfSections() * sizeof(Elf64_Shdr);
+            size = (1 + _elf->numberOfSections()) * sizeof(Elf64_Shdr);
         }else if(auto strtab = hierarchy_cast<StringTableSection *>(fragment); strtab) {
             size = 1; // ELF uses index zero for non-existent strings.
             for(auto string : _elf->strings()) {
                 string->designatedOffset = size;
                 size += string->buffer.size() + 1;
             }
+        }else if(auto symtab = hierarchy_cast<SymbolTableSection *>(fragment); symtab) {
+            size_t numEntries = 1; // ELF uses index zero for non-existent strings.
+            for(auto symbol : _elf->symbols()) {
+                // TODO: Set a designatedIndex of the Symbol.
+                numEntries++;
+            }
+            size = sizeof(Elf64_Sym) * numEntries;
         }else{
             auto section = hierarchy_cast<ByteSection *>(fragment);
             assert(section && "Unexpected ELF fragment");

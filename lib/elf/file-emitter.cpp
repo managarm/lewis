@@ -1,5 +1,6 @@
 
 #include <cassert>
+#include <iostream>
 #include <elf.h>
 #include <lewis/elf/file-emitter.hpp>
 #include <lewis/elf/passes.hpp>
@@ -17,6 +18,7 @@ private:
     void _emitPhdrs(PhdrsFragment *phdrs);
     void _emitShdrs(ShdrsFragment *shdrs);
     void _emitStringTable(StringTableSection *strtab);
+    void _emitSymbolTable(SymbolTableSection *symtab);
 
     Object *_elf;
 };
@@ -52,7 +54,7 @@ void FileEmitterImpl::run() {
     // TODO: # of PHDRs should be independent of # of sections.
     encodeHalf(ehdr, _elf->numberOfFragments()); // e_phnum
     encodeHalf(ehdr, sizeof(Elf64_Shdr)); // e_shentsize
-    encodeHalf(ehdr, _elf->numberOfSections()); // e_shnum
+    encodeHalf(ehdr, 1 + _elf->numberOfSections()); // e_shnum
     encodeHalf(ehdr, _elf->stringTableFragment->designatedIndex.value()); // e_shstrndx
 
     for(auto fragment : _elf->fragments()) {
@@ -62,6 +64,8 @@ void FileEmitterImpl::run() {
             _emitShdrs(shdrs);
         }else if(auto strtab = hierarchy_cast<StringTableSection *>(fragment); strtab) {
             _emitStringTable(strtab);
+        }else if(auto symtab = hierarchy_cast<SymbolTableSection *>(fragment); symtab) {
+            _emitSymbolTable(symtab);
         }else{
             auto section = hierarchy_cast<ByteSection *>(fragment);
             assert(section && "Unexpected Fragment for FileEmitter");
@@ -91,6 +95,19 @@ void FileEmitterImpl::_emitPhdrs(PhdrsFragment *phdrs) {
 void FileEmitterImpl::_emitShdrs(ShdrsFragment *shdrs) {
     util::ByteEncoder section{&buffer};
 
+    // Emit the SHN_UNDEF section. Specified in the ELF base specification.
+    encodeWord(section, 0); // sh_name
+    encodeWord(section, SHT_NULL); // sh_type
+    encodeXword(section, 0); // sh_flags
+    encodeAddr(section, 0); // sh_addr
+    encodeOff(section, 0); // sh_offset
+    encodeXword(section, 0); // sh_size
+    encodeWord(section, SHN_UNDEF); // sh_link
+    encodeWord(section, 0); // sh_info
+    encodeXword(section, 0); // sh_addralign
+    encodeXword(section, 0); // sh_entsize
+
+    // Emit all "real sections.
     for(auto fragment : _elf->fragments()) {
         if(!fragment->isSection())
             continue;
@@ -102,17 +119,23 @@ void FileEmitterImpl::_emitShdrs(ShdrsFragment *shdrs) {
             nameIndex = fragment->name->designatedOffset.value();
         }
 
+        size_t linkIndex = 0;
+        if(fragment->sectionLink) {
+            assert(fragment->sectionLink->designatedIndex.has_value()
+                    && "Section layout must be fixed for FileEmitter");
+            linkIndex = fragment->sectionLink->designatedIndex.value();
+        }
+
         encodeWord(section, nameIndex); // sh_name
-        // TODO: sh_type and sh_flags are only fillers.
         encodeWord(section, fragment->type); // sh_type
         encodeXword(section, fragment->flags); // sh_flags
         encodeAddr(section, fragment->fileOffset.value()); // sh_addr
         encodeOff(section, fragment->fileOffset.value()); // sh_offset
         encodeXword(section, fragment->computedSize.value()); // sh_size
-        encodeWord(section, 0); // sh_link
-        encodeWord(section, 0); // sh_info
+        encodeWord(section, linkIndex); // sh_link
+        encodeWord(section, fragment->sectionInfo.value_or(0)); // sh_info
         encodeXword(section, 0); // sh_addralign
-        encodeXword(section, 0); // sh_entsize
+        encodeXword(section, fragment->entrySize.value_or(0)); // sh_entsize
     }
 }
 
@@ -123,6 +146,42 @@ void FileEmitterImpl::_emitStringTable(StringTableSection *strtab) {
     for(auto string : _elf->strings()) {
         encodeChars(section, string->buffer.c_str());
         encode8(section, 0);
+    }
+}
+
+void FileEmitterImpl::_emitSymbolTable(SymbolTableSection *symtab) {
+    util::ByteEncoder section{&buffer};
+
+    // Encode the null symbol.
+    encodeWord(section, 0); // st_name
+    encode8(section, 0); // st_info
+    encode8(section, 0); // st_other
+    encodeHalf(section, 0); // st_shndx
+    encodeAddr(section, 0); // st_value
+    encodeXword(section, 0); // st_size
+
+    // Encode all "real" symbols.
+    for(auto symbol : _elf->symbols()) {
+        size_t nameIndex = 0;
+        if(symbol->name) {
+            assert(symbol->name->designatedOffset.has_value()
+                    && "String table layout must be fixed for FileEmitter");
+            nameIndex = symbol->name->designatedOffset.value();
+        }
+
+        size_t sectionIndex = 0;
+        if(symbol->section) {
+            assert(symbol->section->designatedIndex.has_value()
+                    && "Section layout must be fixed for FileEmitter");
+            sectionIndex = symbol->section->designatedIndex.value();
+        }
+
+        encodeWord(section, nameIndex); // st_name
+        encode8(section, ELF64_ST_INFO(STB_GLOBAL, STT_FUNC)); // st_info
+        encode8(section, 0); // st_other
+        encodeHalf(section, sectionIndex); // st_shndx
+        encodeAddr(section, symbol->value); // st_value
+        encodeXword(section, 0); // st_size
     }
 }
 

@@ -39,14 +39,18 @@ void Fragment::replaceAllUses(Fragment *other) {
 // Object class
 // --------------------------------------------------------------------------------------
 
-void Object::insertFragment(std::unique_ptr<Fragment> fragment) {
+void Object::doInsertFragment(std::unique_ptr<Fragment> fragment) {
     if(fragment->isSection())
         _numSections++;
     _fragments.push_back(std::move(fragment));
 }
 
-void Object::addString(std::unique_ptr<String> string) {
+void Object::doAddString(std::unique_ptr<String> string) {
     _strings.push_back(std::move(string));
+}
+
+void Object::doAddSymbol(std::unique_ptr<Symbol> symbol) {
+    _symbols.push_back(std::move(symbol));
 }
 
 void Object::replaceFragment(Fragment *from, std::unique_ptr<Fragment> to) {

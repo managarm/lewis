@@ -18,7 +18,8 @@ namespace fragment_kinds {
         shdrsFragment,
         // All Fragments are byteSection are considered Sections (see Fragment::isSection()).
         byteSection,
-        stringTableSection
+        stringTableSection,
+        symbolTableSection
     };
 }
 
@@ -94,6 +95,9 @@ public:
     std::optional<uintptr_t> fileOffset;
     std::optional<uintptr_t> virtualAdress;
     std::optional<uintptr_t> computedSize;
+    FragmentUse sectionLink;
+    std::optional<size_t> sectionInfo;
+    std::optional<size_t> entrySize;
 
 private:
     frg::intrusive_list<
@@ -151,6 +155,18 @@ struct String {
     std::optional<size_t> designatedOffset;
 };
 
+struct SymbolTableSection : Fragment,
+        CastableIfFragmentKind<SymbolTableSection, fragment_kinds::symbolTableSection> {
+    SymbolTableSection()
+    : Fragment{fragment_kinds::symbolTableSection} { }
+};
+
+struct Symbol {
+    String *name = nullptr;
+    FragmentUse section;
+    size_t value = 0;
+};
+
 struct Object {
     // -------------------------------------------------------------------------------------
     // Fragment management.
@@ -195,7 +211,14 @@ struct Object {
         Object *_elf;
     };
 
-    void insertFragment(std::unique_ptr<Fragment> fragment);
+    void doInsertFragment(std::unique_ptr<Fragment> fragment);
+
+    template<typename F>
+    F *insertFragment(std::unique_ptr<F> fragment) {
+        auto ptr = fragment.get();
+        doInsertFragment(std::move(fragment));
+        return ptr;
+    }
 
     void replaceFragment(Fragment *from, std::unique_ptr<Fragment> to);
 
@@ -214,6 +237,7 @@ struct Object {
     FragmentUse phdrsFragment;
     FragmentUse shdrsFragment;
     FragmentUse stringTableFragment;
+    FragmentUse symbolTableFragment;
 
     // -------------------------------------------------------------------------------------
     // String management.
@@ -258,15 +282,77 @@ struct Object {
         Object *_elf;
     };
 
-    void addString(std::unique_ptr<String> string);
+    void doAddString(std::unique_ptr<String> string);
+
+    String *addString(std::unique_ptr<String> string) {
+        auto ptr = string.get();
+        doAddString(std::move(string));
+        return ptr;
+    }
 
     StringRange strings() {
         return StringRange{this};
     }
 
+    // -------------------------------------------------------------------------------------
+    // Symbol management.
+    // -------------------------------------------------------------------------------------
+
+    struct SymbolIterator {
+    private:
+        using Base = std::vector<std::unique_ptr<Symbol>>::iterator;
+
+    public:
+        SymbolIterator(Base b)
+        : _b{b} { }
+
+        bool operator!= (const SymbolIterator &other) const {
+            return _b != other._b;
+        }
+
+        Symbol *operator* () const {
+            return _b->get();
+        }
+
+        void operator++ () {
+            ++_b;
+        }
+
+    private:
+        Base _b;
+    };
+
+    struct SymbolRange {
+        SymbolRange(Object *elf)
+        : _elf{elf} { }
+
+        SymbolIterator begin() {
+            return SymbolIterator{_elf->_symbols.begin()};
+        }
+        SymbolIterator end() {
+            return SymbolIterator{_elf->_symbols.end()};
+        }
+
+    private:
+        Object *_elf;
+    };
+
+    void doAddSymbol(std::unique_ptr<Symbol> symbol);
+
+    Symbol *addSymbol(std::unique_ptr<Symbol> symbol) {
+        auto ptr = symbol.get();
+        doAddSymbol(std::move(symbol));
+        return ptr;
+    }
+
+    SymbolRange symbols() {
+        return SymbolRange{this};
+    }
+
 private:
     std::vector<std::unique_ptr<Fragment>> _fragments;
     std::vector<std::unique_ptr<String>> _strings;
+    std::vector<std::unique_ptr<Symbol>> _symbols;
     size_t _numSections = 0;
 };
 
