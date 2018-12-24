@@ -17,11 +17,19 @@ private:
 
 void LowerCodeImpl::run() {
     for(auto inst : _bb->instructions()) {
-        auto loadConst = hierarchy_cast<LoadConstInstruction *>(inst);
-        assert(loadConst && "Unexpected generic IR instruction");
-        auto lower = std::make_unique<MovMCInstruction>();
-        lower->value = loadConst->value;
-        _bb->replaceInstruction(inst, std::move(lower));
+        if(auto loadConst = hierarchy_cast<LoadConstInstruction *>(inst); loadConst) {
+            auto lower = std::make_unique<MovMCInstruction>();
+            lower->value = loadConst->value;
+            loadConst->result()->replaceAllUses(lower->result());
+            _bb->replaceInstruction(inst, std::move(lower));
+        }else if(auto unaryMath = hierarchy_cast<UnaryMathInstruction *>(inst); unaryMath) {
+            auto lower = std::make_unique<NegMInstruction>();
+            lower->operand = unaryMath->operand.get();
+            unaryMath->result()->replaceAllUses(lower->result());
+            _bb->replaceInstruction(inst, std::move(lower));
+        }else{
+            assert(!"Unexpected generic IR instruction");
+        }
     }
 }
 

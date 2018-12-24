@@ -8,8 +8,9 @@
 
 int main() {
     lewis::BasicBlock bb;
-    bb.insertInstruction(std::make_unique<lewis::LoadConstInstruction>(42));
-    bb.insertInstruction(std::make_unique<lewis::LoadConstInstruction>(0xF00));
+    auto i0 = bb.insertInstruction(std::make_unique<lewis::LoadConstInstruction>(42));
+    bb.insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
+            lewis::UnaryMathOpcode::negate, i0->result()));
 
     auto lower = lewis::targets::x86_64::LowerCodePass::create(&bb);
     lower->run();
