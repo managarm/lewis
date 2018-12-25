@@ -1,3 +1,5 @@
+// Copyright the lewis authors (AUTHORS.md) 2018
+// SPDX-License-Identifier: MIT
 
 #include <cassert>
 #include <cstring>
@@ -12,12 +14,12 @@ namespace lewis::elf {
 // --------------------------------------------------------------------------------------
 
 void FragmentUse::assign(Fragment *f) {
-    if(_ref) {
+    if (_ref) {
         auto it = _ref->_useList.iterator_to(this);
         _ref->_useList.erase(it);
     }
 
-    if(f)
+    if (f)
         f->_useList.push_back(this);
     _ref = f;
 }
@@ -28,7 +30,7 @@ void FragmentUse::assign(Fragment *f) {
 
 void Fragment::replaceAllUses(Fragment *other) {
     auto it = _useList.begin();
-    while(it != _useList.end()) {
+    while (it != _useList.end()) {
         FragmentUse *use = *it;
         ++it;
         use->assign(other);
@@ -40,8 +42,7 @@ void Fragment::replaceAllUses(Fragment *other) {
 // --------------------------------------------------------------------------------------
 
 void Object::doInsertFragment(std::unique_ptr<Fragment> fragment) {
-    if(fragment->isSection())
-        _numSections++;
+    if (fragment->isSection()) _numSections++;
     _fragments.push_back(std::move(fragment));
 }
 
@@ -59,9 +60,8 @@ void Object::replaceFragment(Fragment *from, std::unique_ptr<Fragment> to) {
 
     from->replaceAllUses(to.get());
 
-    for(auto &slot : _fragments) {
-        if(slot.get() != from)
-            continue;
+    for (auto &slot : _fragments) {
+        if (slot.get() != from) continue;
         slot = std::move(to);
         return;
     }
@@ -70,4 +70,3 @@ void Object::replaceFragment(Fragment *from, std::unique_ptr<Fragment> to) {
 }
 
 } // namespace lewis::elf
-

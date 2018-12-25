@@ -1,3 +1,5 @@
+# Copyright the lewis authors (AUTHORS.md) 2018
+# SPDX-License-Identifier: MIT
 
 project('lewis', 'cpp')
 
@@ -26,4 +28,3 @@ lib_dep = declare_dependency(link_with: lib,
 
 executable('test-elf', 'tools/test-elf.cpp',
     dependencies: [frigg_dep, lib_dep])
-

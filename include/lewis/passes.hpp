@@ -1,3 +1,5 @@
+// Copyright the lewis authors (AUTHORS.md) 2018
+// SPDX-License-Identifier: MIT
 
 #pragma once
 
@@ -12,4 +14,3 @@ struct BasicBlockPass {
 };
 
 } // namespace lewis::elf
-

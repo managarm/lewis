@@ -1,3 +1,5 @@
+// Copyright the lewis authors (AUTHORS.md) 2018
+// SPDX-License-Identifier: MIT
 
 #pragma once
 
@@ -14,7 +16,7 @@ struct Castable {
     template<typename B>
     friend D *castTaggedPointer(HierarchyTag<D>, B *p) {
         P pred;
-        if(!pred(p))
+        if (!pred(p))
             return nullptr;
         return static_cast<D *>(p);
     }
@@ -38,4 +40,3 @@ To hierarchy_cast(From x) {
 }
 
 } // namespace lewis
-

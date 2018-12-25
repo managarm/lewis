@@ -1,3 +1,5 @@
+// Copyright the lewis authors (AUTHORS.md) 2018
+// SPDX-License-Identifier: MIT
 
 #include <stdexcept>
 #include <lewis/elf/object.hpp>
@@ -34,9 +36,9 @@ int main() {
     if(!(stream = fopen("a.out", "wb")))
         throw std::runtime_error("Could not open output file");
     auto written = fwrite(file_emitter->buffer.data(), sizeof(uint8_t),
-            file_emitter->buffer.size(), stream);
+        file_emitter->buffer.size(), stream);
     if(written != file_emitter->buffer.size())
         throw std::runtime_error("Could not write buffer to FILE");
+
     fclose(stream);
 }
-

@@ -1,3 +1,5 @@
+// Copyright the lewis authors (AUTHORS.md) 2018
+// SPDX-License-Identifier: MIT
 
 #include <elf.h>
 #include <lewis/elf/passes.hpp>
@@ -41,4 +43,3 @@ std::unique_ptr<CreateHeadersPass> CreateHeadersPass::create(Object *elf) {
 }
 
 } // namespace lewis::elf
-

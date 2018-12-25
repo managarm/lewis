@@ -1,3 +1,5 @@
+// Copyright the lewis authors (AUTHORS.md) 2018
+// SPDX-License-Identifier: MIT
 
 #pragma once
 
@@ -19,7 +21,7 @@ private:
 
 public:
     friend void encodeChars(ByteEncoder &e, const char *v) {
-        while(*v)
+        while (*v)
             e._poke<uint8_t>(*(v++));
     }
     friend void encode8(ByteEncoder &e, uint8_t v) { e._poke<uint8_t>(v); }
@@ -32,4 +34,3 @@ private:
 };
 
 } // namespace lewis::util
-
