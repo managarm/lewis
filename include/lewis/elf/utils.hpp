@@ -1,3 +1,5 @@
+// Copyright the lewis authors (AUTHORS.md) 2018
+// SPDX-License-Identifier: MIT
 
 #pragma once
 
@@ -13,4 +15,3 @@ inline void encodeWord(util::ByteEncoder &enc, uint32_t v) { encode32(enc, v); }
 inline void encodeXword(util::ByteEncoder &enc, uint64_t v) { encode64(enc, v); }
 
 } // namespace lewis::elf
-

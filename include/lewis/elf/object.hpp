@@ -1,3 +1,5 @@
+// Copyright the lewis authors (AUTHORS.md) 2018
+// SPDX-License-Identifier: MIT
 
 #pragma once
 
@@ -357,4 +359,3 @@ private:
 };
 
 } // namespace lewis::elf
-

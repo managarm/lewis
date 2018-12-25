@@ -1,3 +1,5 @@
+// Copyright the lewis authors (AUTHORS.md) 2018
+// SPDX-License-Identifier: MIT
 
 #pragma once
 
@@ -59,4 +61,3 @@ struct NegMInstruction
 };
 
 } // namespace lewis::targets::x86_64
-

@@ -1,3 +1,5 @@
+// Copyright the lewis authors (AUTHORS.md) 2018
+// SPDX-License-Identifier: MIT
 
 #pragma once
 
@@ -25,4 +27,3 @@ struct LayoutPass : ObjectPass {
 };
 
 } // namespace lewis::elf
-

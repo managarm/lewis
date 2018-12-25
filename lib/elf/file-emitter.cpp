@@ -1,3 +1,5 @@
+// Copyright the lewis authors (AUTHORS.md) 2018
+// SPDX-License-Identifier: MIT
 
 #include <cassert>
 #include <iostream>
@@ -34,7 +36,7 @@ void FileEmitterImpl::run() {
     encode8(ehdr, 1); // ELF version; so far, there is only one.
     encode8(ehdr, ELFOSABI_SYSV);
     encode8(ehdr, 0); // ABI version. For the SysV ABI, this is not defined.
-    for(int i = 0; i < 7; i++) // The remaining e_ident bytes are padding.
+    for (int i = 0; i < 7; i++) // The remaining e_ident bytes are padding.
         encode8(ehdr, 0);
 
     // Write the remaining EHDR fields.
@@ -57,16 +59,16 @@ void FileEmitterImpl::run() {
     encodeHalf(ehdr, 1 + _elf->numberOfSections()); // e_shnum
     encodeHalf(ehdr, _elf->stringTableFragment->designatedIndex.value()); // e_shstrndx
 
-    for(auto fragment : _elf->fragments()) {
-        if(auto phdrs = hierarchy_cast<PhdrsFragment *>(fragment); phdrs) {
+    for (auto fragment : _elf->fragments()) {
+        if (auto phdrs = hierarchy_cast<PhdrsFragment *>(fragment); phdrs) {
             _emitPhdrs(phdrs);
-        }else if(auto shdrs = hierarchy_cast<ShdrsFragment *>(fragment); shdrs) {
+        } else if (auto shdrs = hierarchy_cast<ShdrsFragment *>(fragment); shdrs) {
             _emitShdrs(shdrs);
-        }else if(auto strtab = hierarchy_cast<StringTableSection *>(fragment); strtab) {
+        } else if (auto strtab = hierarchy_cast<StringTableSection *>(fragment); strtab) {
             _emitStringTable(strtab);
-        }else if(auto symtab = hierarchy_cast<SymbolTableSection *>(fragment); symtab) {
+        } else if (auto symtab = hierarchy_cast<SymbolTableSection *>(fragment); symtab) {
             _emitSymbolTable(symtab);
-        }else{
+        } else {
             auto section = hierarchy_cast<ByteSection *>(fragment);
             assert(section && "Unexpected Fragment for FileEmitter");
             buffer.insert(buffer.end(), section->buffer.begin(), section->buffer.end());
@@ -77,7 +79,7 @@ void FileEmitterImpl::run() {
 void FileEmitterImpl::_emitPhdrs(PhdrsFragment *phdrs) {
     util::ByteEncoder section{&buffer};
 
-    for(auto fragment : _elf->fragments()) {
+    for (auto fragment : _elf->fragments()) {
         // TODO: p_type and p_flags are only fillers.
         encodeWord(section, PT_LOAD); // p_type
         encodeWord(section, PF_R | PF_X); // p_flags
@@ -108,19 +110,19 @@ void FileEmitterImpl::_emitShdrs(ShdrsFragment *shdrs) {
     encodeXword(section, 0); // sh_entsize
 
     // Emit all "real sections.
-    for(auto fragment : _elf->fragments()) {
-        if(!fragment->isSection())
+    for (auto fragment : _elf->fragments()) {
+        if (!fragment->isSection())
             continue;
 
         size_t nameIndex = 0;
-        if(fragment->name) {
+        if (fragment->name) {
             assert(fragment->name->designatedOffset.has_value()
                     && "String table layout must be fixed for FileEmitter");
             nameIndex = fragment->name->designatedOffset.value();
         }
 
         size_t linkIndex = 0;
-        if(fragment->sectionLink) {
+        if (fragment->sectionLink) {
             assert(fragment->sectionLink->designatedIndex.has_value()
                     && "Section layout must be fixed for FileEmitter");
             linkIndex = fragment->sectionLink->designatedIndex.value();
@@ -143,7 +145,7 @@ void FileEmitterImpl::_emitStringTable(StringTableSection *strtab) {
     util::ByteEncoder section{&buffer};
 
     encode8(section, 0); // ELF uses index zero for non-existent strings.
-    for(auto string : _elf->strings()) {
+    for (auto string : _elf->strings()) {
         encodeChars(section, string->buffer.c_str());
         encode8(section, 0);
     }
@@ -161,16 +163,16 @@ void FileEmitterImpl::_emitSymbolTable(SymbolTableSection *symtab) {
     encodeXword(section, 0); // st_size
 
     // Encode all "real" symbols.
-    for(auto symbol : _elf->symbols()) {
+    for (auto symbol : _elf->symbols()) {
         size_t nameIndex = 0;
-        if(symbol->name) {
+        if (symbol->name) {
             assert(symbol->name->designatedOffset.has_value()
                     && "String table layout must be fixed for FileEmitter");
             nameIndex = symbol->name->designatedOffset.value();
         }
 
         size_t sectionIndex = 0;
-        if(symbol->section) {
+        if (symbol->section) {
             assert(symbol->section->designatedIndex.has_value()
                     && "Section layout must be fixed for FileEmitter");
             sectionIndex = symbol->section->designatedIndex.value();
@@ -190,4 +192,3 @@ std::unique_ptr<FileEmitter> FileEmitter::create(Object *elf) {
 }
 
 } // namespace lewis::elf
-

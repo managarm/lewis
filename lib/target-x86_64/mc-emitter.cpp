@@ -1,3 +1,5 @@
+// Copyright the lewis authors (AUTHORS.md) 2018
+// SPDX-License-Identifier: MIT
 
 #include <cassert>
 #include <elf.h>
@@ -33,19 +35,17 @@ void MachineCodeEmitter::run() {
     symbol->section = textSection;
 
     util::ByteEncoder text{&textSection->buffer};
-    for(auto inst : _bb->instructions()) {
-        if(auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
+    for (auto inst : _bb->instructions()) {
+        if (auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
             encode8(text, 0xB8);
             encode32(text, movMC->value);
-        }else if(auto negM = hierarchy_cast<NegMInstruction *>(inst); negM) {
+        } else if (auto negM = hierarchy_cast<NegMInstruction *>(inst); negM) {
             encode8(text, 0xF7);
             encodeMode(text, negM->operand.get(), 3);
-        }else{
+        } else {
             assert(!"Unexpected machine code instruction");
         }
     }
 }
 
-
 } // namespace lewis::targets::x86_64
-

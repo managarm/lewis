@@ -1,3 +1,5 @@
+// Copyright the lewis authors (AUTHORS.md) 2018
+// SPDX-License-Identifier: MIT
 
 #include <cassert>
 #include <lewis/target-x86_64/arch-ir.hpp>
@@ -16,18 +18,18 @@ private:
 };
 
 void LowerCodeImpl::run() {
-    for(auto inst : _bb->instructions()) {
-        if(auto loadConst = hierarchy_cast<LoadConstInstruction *>(inst); loadConst) {
+    for (auto inst : _bb->instructions()) {
+        if (auto loadConst = hierarchy_cast<LoadConstInstruction *>(inst); loadConst) {
             auto lower = std::make_unique<MovMCInstruction>();
             lower->value = loadConst->value;
             loadConst->result()->replaceAllUses(lower->result());
             _bb->replaceInstruction(inst, std::move(lower));
-        }else if(auto unaryMath = hierarchy_cast<UnaryMathInstruction *>(inst); unaryMath) {
+        } else if (auto unaryMath = hierarchy_cast<UnaryMathInstruction *>(inst); unaryMath) {
             auto lower = std::make_unique<NegMInstruction>();
             lower->operand = unaryMath->operand.get();
             unaryMath->result()->replaceAllUses(lower->result());
             _bb->replaceInstruction(inst, std::move(lower));
-        }else{
+        } else {
             assert(!"Unexpected generic IR instruction");
         }
     }
@@ -38,4 +40,3 @@ std::unique_ptr<LowerCodePass> LowerCodePass::create(BasicBlock *bb) {
 }
 
 } // namespace lewis::elf
-
