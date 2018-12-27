@@ -31,6 +31,8 @@ struct ModeMResult
         CastableIfValueKind<ModeMResult, value_kinds::genericResult> {
     ModeMResult()
     : Value{value_kinds::genericResult} { }
+
+    int modeRegister = 0;
 };
 
 struct WithModeMResult {
