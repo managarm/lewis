@@ -59,7 +59,7 @@ struct MovMRInstruction
 : Instruction, WithModeMResult,
         CastableIfInstructionKind<MovMRInstruction, arch_instruction_kinds::movMR> {
     MovMRInstruction(Value *operand_ = nullptr)
-    : Instruction{arch_instruction_kinds::movMR}, operand{operand_} { }
+    : Instruction{arch_instruction_kinds::movMR}, operand{this, operand_} { }
 
     ValueUse operand;
 };
@@ -68,7 +68,7 @@ struct NegMInstruction
 : Instruction, WithModeMResult,
         CastableIfInstructionKind<NegMInstruction, arch_instruction_kinds::negM> {
     NegMInstruction(Value *operand_ = nullptr)
-    : Instruction{arch_instruction_kinds::negM}, operand{operand_} { }
+    : Instruction{arch_instruction_kinds::negM}, operand{this, operand_} { }
 
     ValueUse operand;
 };

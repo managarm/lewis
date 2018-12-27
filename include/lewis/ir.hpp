@@ -15,23 +15,28 @@ namespace lewis {
 //---------------------------------------------------------------------------------------
 
 struct Value;
+struct Instruction;
 
 // Represents a single "use" of a Value. This is necessary to support Value replacement.
 // For convenience, this class also has a Value pointer-like interface.
 struct ValueUse {
     friend struct Value;
 
-    ValueUse()
-    : _ref{nullptr} { }
+    ValueUse(Instruction *inst)
+    : _inst{inst}, _ref{nullptr} { }
 
-    ValueUse(Value *v)
-    : _ref{nullptr} {
+    ValueUse(Instruction *inst, Value *v)
+    : _inst{inst}, _ref{nullptr} {
         assign(v);
     }
 
     ValueUse(const ValueUse &) = delete;
 
     ValueUse &operator= (const ValueUse &) = delete;
+
+    Instruction *instruction() {
+        return _inst;
+    }
 
     void assign(Value *v);
 
@@ -55,6 +60,7 @@ struct ValueUse {
     Value *operator-> () { return _ref; }
 
 private:
+    Instruction *_inst;
     Value *_ref;
     frg::default_list_hook<ValueUse> _useListHook;
 };
@@ -79,8 +85,34 @@ namespace value_kinds {
 struct Value {
     friend struct ValueUse;
 
+    using UseList = frg::intrusive_list<
+        ValueUse,
+        frg::locate_member<
+            ValueUse,
+            frg::default_list_hook<ValueUse>,
+            &ValueUse::_useListHook
+        >
+    >;
+
+    struct UseRange {
+        UseRange(Value *v)
+        : _v{v} { }
+
+        auto begin() { return _v->_useList.begin(); }
+        auto end() { return _v->_useList.begin(); }
+
+    private:
+        Value *_v;
+    };
+
+    using UseIterator = UseList::iterator;
+
     Value(ValueKindType kind_)
     : kind{kind_} { }
+
+    UseRange uses() {
+        return UseRange{this};
+    }
 
     void replaceAllUses(Value *other);
 
@@ -88,14 +120,7 @@ struct Value {
 
 private:
     // Linked list of all uses of this Value.
-    frg::intrusive_list<
-        ValueUse,
-        frg::locate_member<
-            ValueUse,
-            frg::default_list_hook<ValueUse>,
-            &ValueUse::_useListHook
-        >
-    > _useList;
+    UseList _useList;
 };
 
 // Template magic to enable hierarchy_cast<>.
@@ -291,7 +316,7 @@ struct UnaryMathInstruction
         CastableIfInstructionKind<UnaryMathInstruction, instruction_kinds::unaryMath> {
     UnaryMathInstruction(UnaryMathOpcode opcode_ = UnaryMathOpcode::null,
             Value *operand_ = nullptr)
-    : Instruction{instruction_kinds::unaryMath}, opcode{opcode_}, operand{operand_} { }
+    : Instruction{instruction_kinds::unaryMath}, opcode{opcode_}, operand{this, operand_} { }
 
     UnaryMathOpcode opcode;
     ValueUse operand;

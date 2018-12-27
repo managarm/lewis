@@ -36,6 +36,7 @@ struct AllocateRegistersImpl : AllocateRegistersPass {
 private:
     void _linearizePcs();
     void _generateIntervals();
+    int _determineDeathPc(Value *v);
     void _establishAllocation();
 
     BasicBlock *_bb;
@@ -104,18 +105,28 @@ void AllocateRegistersImpl::_generateIntervals() {
             auto interval = new LiveInterval;
             interval->associatedValue = movMC->result();
             interval->originPc = _pcMap.at(inst);
-            interval->deathPc = _nPcs;
+            interval->deathPc = _determineDeathPc(movMC->result());
             _queue.push(interval);
         } else if (auto negM = hierarchy_cast<NegMInstruction *>(inst); negM) {
             auto interval = new LiveInterval;
             interval->associatedValue = negM->result();
             interval->originPc = _pcMap.at(inst);
-            interval->deathPc = _nPcs;
+            interval->deathPc = _determineDeathPc(negM->result());
             _queue.push(interval);
         } else {
             assert(!"Unexpected IR instruction");
         }
     }
+}
+
+int AllocateRegistersImpl::_determineDeathPc(Value *v) {
+    int deathPc = -1;
+    for (auto use : v->uses()) {
+        auto usePc = _pcMap.at(use->instruction());
+        if (usePc + 1 > deathPc)
+            deathPc = usePc + 1;
+    }
+    return deathPc;
 }
 
 // This is called *after* the actual allocation is done. It "implements" the allocation by
@@ -153,10 +164,10 @@ void AllocateRegistersImpl::_establishAllocation() {
         // Erase all intervals that died after the previous PC.
         currentPc++;
         for (auto it = liveMap.begin(); it != liveMap.end(); ) {
-            assert(it->second->deathPc >= currentPc);
-            if (it->second->deathPc == currentPc) {
+            if (it->second->deathPc == -1 || it->second->deathPc == currentPc) {
                 it = liveMap.erase(it);
             }else{
+                assert(it->second->deathPc > currentPc);
                 ++it;
             }
         }
