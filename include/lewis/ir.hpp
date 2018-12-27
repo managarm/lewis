@@ -129,10 +129,15 @@ namespace instruction_kinds {
 }
 
 struct Instruction {
+    friend struct BasicBlock;
+
     Instruction(InstructionKindType kind_)
     : kind{kind_} { }
 
     const InstructionKindType kind;
+
+private:
+    frg::default_list_hook<Instruction> _listHook;
 };
 
 // Template magic to enable hierarchy_cast<>.
@@ -148,9 +153,18 @@ template<typename T, InstructionKindType K>
 struct CastableIfInstructionKind : Castable<T, IsInstructionKind<K>> { };
 
 struct BasicBlock {
+    using InstructionList = frg::intrusive_list<
+        Instruction,
+        frg::locate_member<
+            Instruction,
+            frg::default_list_hook<Instruction>,
+            &Instruction::_listHook
+        >
+    >;
+
     struct InstructionIterator {
     private:
-        using Base = std::vector<std::unique_ptr<Instruction>>::iterator;
+        using Base = InstructionList::iterator;
 
     public:
         InstructionIterator(Base b)
@@ -161,7 +175,7 @@ struct BasicBlock {
         }
 
         Instruction *operator* () const {
-            return _b->get();
+            return *_b;
         }
 
         void operator++ () {
@@ -176,10 +190,6 @@ struct BasicBlock {
         InstructionRange(BasicBlock *bb)
         : _bb{bb} { }
 
-        size_t size() {
-            return _bb->_insts.size();
-        }
-
         InstructionIterator begin() {
             return InstructionIterator{_bb->_insts.begin()};
         }
@@ -192,7 +202,7 @@ struct BasicBlock {
     };
 
     void doInsertInstruction(std::unique_ptr<Instruction> inst) {
-        _insts.push_back(std::move(inst));
+        _insts.push_back(inst.release());
     }
 
     template<typename I>
@@ -202,12 +212,11 @@ struct BasicBlock {
         return ptr;
     }
 
-    void replaceInstruction(Instruction *from, std::unique_ptr<Instruction> to) {
-        // TODO: Handle errors.
-        // TODO: Make this more efficient.
-        for(auto &inst : _insts)
-            if(inst.get() == from)
-                inst = std::move(to);
+    InstructionIterator replaceInstruction(InstructionIterator from, std::unique_ptr<Instruction> to) {
+        auto it = _insts.iterator_to(*from);
+        auto nit = _insts.insert(it, to.release());
+        _insts.erase(it);
+        return nit;
     }
 
     InstructionRange instructions() {
@@ -215,7 +224,14 @@ struct BasicBlock {
     }
 
 private:
-    std::vector<std::unique_ptr<Instruction>> _insts;
+    frg::intrusive_list<
+        Instruction,
+        frg::locate_member<
+            Instruction,
+            frg::default_list_hook<Instruction>,
+            &Instruction::_listHook
+        >
+    > _insts;
 };
 
 //---------------------------------------------------------------------------------------
