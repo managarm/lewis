@@ -15,7 +15,9 @@ int main() {
             lewis::UnaryMathOpcode::negate, i0->result()));
 
     auto lower = lewis::targets::x86_64::LowerCodePass::create(&bb);
+    auto ra = lewis::targets::x86_64::AllocateRegistersPass::create(&bb);
     lower->run();
+    ra->run();
 
     lewis::elf::Object elf;
     lewis::targets::x86_64::MachineCodeEmitter mce{&bb, &elf};

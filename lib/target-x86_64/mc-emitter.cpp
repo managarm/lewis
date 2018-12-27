@@ -18,7 +18,7 @@ void encodeModRm(util::ByteEncoder &enc, int mod, int u, int x) {
 
 void encodeMode(util::ByteEncoder &enc, ModeMResult *v, int extra) {
     assert(v->modeRegister >= 0);
-    assert(extra <= 0x7);
+    assert(extra >= 0 && extra <= 0x7);
     encodeModRm(enc, 3, v->modeRegister, extra);
 }
 
@@ -41,6 +41,11 @@ void MachineCodeEmitter::run() {
             assert(movMC->result()->modeRegister >= 0);
             encode8(text, 0xB8 + movMC->result()->modeRegister);
             encode32(text, movMC->value);
+        } else if (auto movMR = hierarchy_cast<MovMRInstruction *>(inst); movMR) {
+            auto operand = hierarchy_cast<ModeMResult *>(movMR->operand.get());
+            assert(operand);
+            encode8(text, 0x89);
+            encodeMode(text, movMR->result(), operand->modeRegister);
         } else if (auto negM = hierarchy_cast<NegMInstruction *>(inst); negM) {
             encode8(text, 0xF7);
             encodeMode(text, negM->result(), 3);

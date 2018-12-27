@@ -17,6 +17,7 @@ lib = shared_library('lewis',
         'lib/elf/layout-pass.cpp',
         'lib/elf/object.cpp',
         'lib/ir.cpp',
+        'lib/target-x86_64/alloc-regs.cpp',
         'lib/target-x86_64/lower-code.cpp',
         'lib/target-x86_64/mc-emitter.cpp'
     ],

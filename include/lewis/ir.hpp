@@ -163,6 +163,7 @@ struct BasicBlock {
     >;
 
     struct InstructionIterator {
+        friend struct BasicBlock;
     private:
         using Base = InstructionList::iterator;
 
@@ -205,6 +206,10 @@ struct BasicBlock {
         _insts.push_back(inst.release());
     }
 
+    void doInsertInstruction(InstructionIterator before, std::unique_ptr<Instruction> inst) {
+        _insts.insert(before._b, inst.release());
+    }
+
     template<typename I>
     I *insertInstruction(std::unique_ptr<I> inst) {
         auto ptr = inst.get();
@@ -212,8 +217,15 @@ struct BasicBlock {
         return ptr;
     }
 
+    template<typename I>
+    I *insertInstruction(InstructionIterator it, std::unique_ptr<I> inst) {
+        auto ptr = inst.get();
+        doInsertInstruction(it, std::move(inst));
+        return ptr;
+    }
+
     InstructionIterator replaceInstruction(InstructionIterator from, std::unique_ptr<Instruction> to) {
-        auto it = _insts.iterator_to(*from);
+        auto it = from._b;
         auto nit = _insts.insert(it, to.release());
         _insts.erase(it);
         return nit;
