@@ -101,7 +101,7 @@ struct Value {
         : _v{v} { }
 
         auto begin() { return _v->_useList.begin(); }
-        auto end() { return _v->_useList.begin(); }
+        auto end() { return _v->_useList.end(); }
 
     private:
         Value *_v;
