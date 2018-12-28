@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <array>
+#include <algorithm>
 #include <memory>
 #include <vector>
 #include <frg/list.hpp>
@@ -166,16 +168,25 @@ private:
 };
 
 // Template magic to enable hierarchy_cast<>.
-template<InstructionKindType K>
+template<InstructionKindType... S>
 struct IsInstructionKind {
+    bool operator() (Instruction *p) {
+        std::array<InstructionKindType, sizeof...(S)> kinds{S...};
+        return std::find(kinds.begin(), kinds.end(), p->kind) != kinds.end();
+    }
+};
+
+// Specialization for the simple case.
+template<InstructionKindType K>
+struct IsInstructionKind<K> {
     bool operator() (Instruction *p) {
         return p->kind == K;
     }
 };
 
 // Template magic to enable hierarchy_cast<>.
-template<typename T, InstructionKindType K>
-struct CastableIfInstructionKind : Castable<T, IsInstructionKind<K>> { };
+template<typename T, InstructionKindType... S>
+struct CastableIfInstructionKind : Castable<T, IsInstructionKind<S...>> { };
 
 struct BasicBlock {
     using InstructionList = frg::intrusive_list<
