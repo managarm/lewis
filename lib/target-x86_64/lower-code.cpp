@@ -27,7 +27,7 @@ void LowerCodeImpl::run() {
             it = _bb->replaceInstruction(it, std::move(lower));
         } else if (auto unaryMath = hierarchy_cast<UnaryMathInstruction *>(*it); unaryMath) {
             auto lower = std::make_unique<NegMInstruction>();
-            lower->operand = unaryMath->operand.get();
+            lower->primary = unaryMath->operand.get();
             unaryMath->result()->replaceAllUses(lower->result());
             it = _bb->replaceInstruction(it, std::move(lower));
         } else {

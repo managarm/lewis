@@ -46,6 +46,27 @@ private:
     ModeMResult _result;
 };
 
+// Instruction that takes a single operand and overwrites a mode M result.
+struct UnaryMOverwriteInstruction
+: Instruction, WithModeMResult,
+        CastableIfInstructionKind<UnaryMOverwriteInstruction, arch_instruction_kinds::movMR> {
+    UnaryMOverwriteInstruction(InstructionKindType kind, Value *operand_ = nullptr)
+    : Instruction{kind}, operand{this, operand_} { }
+
+    ValueUse operand;
+};
+
+// Instruction that takes a single mode M operand and replaces it by the result.
+struct UnaryMInPlaceInstruction
+: Instruction, WithModeMResult,
+        CastableIfInstructionKind<UnaryMInPlaceInstruction, arch_instruction_kinds::negM> {
+    UnaryMInPlaceInstruction(InstructionKindType kind, Value *primary_ = nullptr)
+    : Instruction{kind}, primary{this, primary_} { }
+
+    ValueUse primary;
+};
+
+// TODO: Turn this into a UnaryMOverwriteInstruction.
 struct MovMCInstruction
 : Instruction, WithModeMResult,
         CastableIfInstructionKind<MovMCInstruction, arch_instruction_kinds::movMC> {
@@ -56,21 +77,17 @@ struct MovMCInstruction
 };
 
 struct MovMRInstruction
-: Instruction, WithModeMResult,
+: UnaryMOverwriteInstruction,
         CastableIfInstructionKind<MovMRInstruction, arch_instruction_kinds::movMR> {
     MovMRInstruction(Value *operand_ = nullptr)
-    : Instruction{arch_instruction_kinds::movMR}, operand{this, operand_} { }
-
-    ValueUse operand;
+    : UnaryMOverwriteInstruction{arch_instruction_kinds::movMR, operand_} { }
 };
 
 struct NegMInstruction
-: Instruction, WithModeMResult,
+: UnaryMInPlaceInstruction,
         CastableIfInstructionKind<NegMInstruction, arch_instruction_kinds::negM> {
-    NegMInstruction(Value *operand_ = nullptr)
-    : Instruction{arch_instruction_kinds::negM}, operand{this, operand_} { }
-
-    ValueUse operand;
+    NegMInstruction(Value *primary_ = nullptr)
+    : UnaryMInPlaceInstruction{arch_instruction_kinds::negM, primary_} { }
 };
 
 } // namespace lewis::targets::x86_64

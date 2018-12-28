@@ -107,11 +107,12 @@ void AllocateRegistersImpl::_generateIntervals() {
             interval->originPc = _pcMap.at(inst);
             interval->deathPc = _determineDeathPc(movMC->result());
             _queue.push(interval);
-        } else if (auto negM = hierarchy_cast<NegMInstruction *>(inst); negM) {
+        } else if (auto unaryMInPlace = hierarchy_cast<UnaryMInPlaceInstruction *>(inst);
+                unaryMInPlace) {
             auto interval = new LiveInterval;
-            interval->associatedValue = negM->result();
+            interval->associatedValue = unaryMInPlace->result();
             interval->originPc = _pcMap.at(inst);
-            interval->deathPc = _determineDeathPc(negM->result());
+            interval->deathPc = _determineDeathPc(unaryMInPlace->result());
             _queue.push(interval);
         } else {
             assert(!"Unexpected IR instruction");
@@ -147,16 +148,17 @@ void AllocateRegistersImpl::_establishAllocation() {
         if (auto movMC = hierarchy_cast<MovMCInstruction *>(*it); movMC) {
             auto resultInterval = bornMap.at(movMC->result());
             movMC->result()->modeRegister = resultInterval->allocatedRegister;
-        } else if (auto negM = hierarchy_cast<NegMInstruction *>(*it); negM) {
-            auto resultInterval = bornMap.at(negM->result());
-            auto operandInterval = liveMap.at(negM->operand.get());
-            if(resultInterval->allocatedRegister != operandInterval->allocatedRegister) {
-                auto move = std::make_unique<MovMRInstruction>(negM->operand.get());
+        } else if (auto unaryMInPlace = hierarchy_cast<UnaryMInPlaceInstruction *>(*it);
+                unaryMInPlace) {
+            auto resultInterval = bornMap.at(unaryMInPlace->result());
+            auto primaryInterval = liveMap.at(unaryMInPlace->primary.get());
+            if(resultInterval->allocatedRegister != primaryInterval->allocatedRegister) {
+                auto move = std::make_unique<MovMRInstruction>(unaryMInPlace->primary.get());
                 move->result()->modeRegister = resultInterval->allocatedRegister;
-                negM->operand = move->result();
+                unaryMInPlace->primary = move->result();
                 _bb->insertInstruction(it, std::move(move));
             }
-            negM->result()->modeRegister = resultInterval->allocatedRegister;
+            unaryMInPlace->result()->modeRegister = resultInterval->allocatedRegister;
         } else {
             assert(!"Unexpected IR instruction");
         }
