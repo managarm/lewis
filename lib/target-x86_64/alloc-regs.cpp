@@ -48,6 +48,11 @@ struct ProgramCounter {
 struct LiveCompound;
 
 struct LiveInterval {
+    // Value that is allocated to the register.
+    // Note that for LiveCompounds that represent phi nodes, the associatedValue is
+    // different in each source BasicBlock.
+    Value *associatedValue = nullptr;
+
     LiveCompound *compound = nullptr;
 
     // Program counters of interval origin and final use.
@@ -64,9 +69,6 @@ struct LiveInterval {
 
 // Encapsulates multiple LiveIntervals that are always allocated to the same register.
 struct LiveCompound {
-    // Value that is allocated to the register.
-    Value *associatedValue = nullptr;
-
     frg::intrusive_list<
         LiveInterval,
         frg::locate_member<
@@ -159,12 +161,23 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
     // Generate LiveIntervals for phis.
     for (auto phi : bb->phis()) {
         auto compound = new LiveCompound;
-        auto interval = new LiveInterval;
-        compound->associatedValue = phi;
-        compound->intervals.push_back(interval);
-        interval->compound = compound;
-        interval->originPc = {bb, 0, afterInstruction};
-        interval->finalPc = _determineFinalPc(bb, 0, phi);
+
+        auto nodeInterval = new LiveInterval;
+        compound->intervals.push_back(nodeInterval);
+        nodeInterval->associatedValue = phi;
+        nodeInterval->compound = compound;
+        nodeInterval->originPc = {bb, 0, afterInstruction};
+        nodeInterval->finalPc = _determineFinalPc(bb, 0, phi);
+
+        for (auto edge : phi->edges()) {
+            auto aliasInterval = new LiveInterval;
+            compound->intervals.push_back(aliasInterval);
+            aliasInterval->associatedValue = edge->alias.get();
+            aliasInterval->compound = compound;
+            aliasInterval->originPc = {edge->source, INT_MAX, afterInstruction};
+            aliasInterval->finalPc = {edge->source, INT_MAX, afterInstruction};
+        }
+
         _queue.push(compound);
     }
 
@@ -176,8 +189,8 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
         if (auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
             auto compound = new LiveCompound;
             auto interval = new LiveInterval;
-            compound->associatedValue = movMC->result();
             compound->intervals.push_back(interval);
+            interval->associatedValue = movMC->result();
             interval->compound = compound;
             interval->originPc = {bb, currentIndex, afterInstruction};
             interval->finalPc = _determineFinalPc(bb, currentIndex, movMC->result());
@@ -186,8 +199,8 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
                 unaryMInPlace) {
             auto compound = new LiveCompound;
             auto interval = new LiveInterval;
-            compound->associatedValue = unaryMInPlace->result();
             compound->intervals.push_back(interval);
+            interval->associatedValue = unaryMInPlace->result();
             interval->compound = compound;
             interval->originPc = {bb, currentIndex, afterInstruction};
             interval->finalPc = _determineFinalPc(bb, currentIndex, unaryMInPlace->result());
@@ -224,9 +237,8 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
     // Find all intervals that originate from phis.
     _allocated.for_overlaps([&] (LiveInterval *interval) {
         assert(!interval->originPc.instructionIndex);
-        auto compound = interval->compound;
-        std::cout << "    Phi node " << compound->associatedValue << " is live" << std::endl;
-        liveMap.insert({compound->associatedValue, interval});
+        std::cout << "    Phi node " << interval->associatedValue << " is live" << std::endl;
+        liveMap.insert({interval->associatedValue, interval});
     }, {bb, 0, afterInstruction});
 
     for (auto phi : bb->phis())
@@ -241,9 +253,8 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
         _allocated.for_overlaps([&] (LiveInterval *interval) {
             if (interval->originPc.instructionIndex != currentIndex)
                 return;
-            auto compound = interval->compound;
-            std::cout << "        Instruction returns " << compound->associatedValue << std::endl;
-            resultMap.insert({compound->associatedValue, interval});
+            std::cout << "        Instruction returns " << interval->associatedValue << std::endl;
+            resultMap.insert({interval->associatedValue, interval});
         }, {bb, currentIndex, afterInstruction});
 
         // Emit code before the current instruction.
