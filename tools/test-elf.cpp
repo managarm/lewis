@@ -9,20 +9,29 @@
 #include <lewis/target-x86_64/mc-emitter.hpp>
 
 int main() {
-    lewis::BasicBlock bb;
-    auto i0 = bb.insertInstruction(std::make_unique<lewis::LoadConstInstruction>(42));
-    auto i1 = bb.insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
+    lewis::Function f0;
+    auto b0 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
+    auto b1 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
+
+    auto i0 = b0->insertInstruction(std::make_unique<lewis::LoadConstInstruction>(42));
+    auto i1 = b0->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
             lewis::UnaryMathOpcode::negate, i0->result()));
-    bb.setBranch(std::make_unique<lewis::UnconditionalBranch>());
+    b0->setBranch(std::make_unique<lewis::UnconditionalBranch>());
     (void)i1;
 
-    auto lower = lewis::targets::x86_64::LowerCodePass::create(&bb);
-    auto ra = lewis::targets::x86_64::AllocateRegistersPass::create(&bb);
-    lower->run();
-    ra->run();
+    b1->setBranch(std::make_unique<lewis::FunctionReturnBranch>());
+
+    auto lo0 = lewis::targets::x86_64::LowerCodePass::create(b0);
+    auto ra0 = lewis::targets::x86_64::AllocateRegistersPass::create(b0);
+    lo0->run();
+    ra0->run();
+    auto lo1 = lewis::targets::x86_64::LowerCodePass::create(b1);
+    auto ra1 = lewis::targets::x86_64::AllocateRegistersPass::create(b1);
+    lo1->run();
+    ra1->run();
 
     lewis::elf::Object elf;
-    lewis::targets::x86_64::MachineCodeEmitter mce{&bb, &elf};
+    lewis::targets::x86_64::MachineCodeEmitter mce{&f0, &elf};
     mce.run();
 
     // Create headers and layout the file.

@@ -165,7 +165,7 @@ struct Instruction {
     const InstructionKindType kind;
 
 private:
-    frg::default_list_hook<Instruction> _listHook;
+    frg::default_list_hook<Instruction> _instListHook;
 };
 
 // Template magic to enable hierarchy_cast<>.
@@ -243,16 +243,18 @@ struct UnconditionalBranch
 };
 
 //---------------------------------------------------------------------------------------
-// BasicBlocks class.
+// BasicBlock class.
 //---------------------------------------------------------------------------------------
 
 struct BasicBlock {
+    friend struct Function;
+
     using InstructionList = frg::intrusive_list<
         Instruction,
         frg::locate_member<
             Instruction,
             frg::default_list_hook<Instruction>,
-            &Instruction::_listHook
+            &Instruction::_instListHook
         >
     >;
 
@@ -338,16 +340,63 @@ struct BasicBlock {
     }
 
 private:
+    frg::default_list_hook<BasicBlock> _blockListHook;
+
     frg::intrusive_list<
         Instruction,
         frg::locate_member<
             Instruction,
             frg::default_list_hook<Instruction>,
-            &Instruction::_listHook
+            &Instruction::_instListHook
         >
     > _insts;
 
     std::unique_ptr<Branch> _branch;
+};
+
+//---------------------------------------------------------------------------------------
+// Function class.
+//---------------------------------------------------------------------------------------
+
+struct Function {
+    using BlockList = frg::intrusive_list<
+        BasicBlock,
+        frg::locate_member<
+            BasicBlock,
+            frg::default_list_hook<BasicBlock>,
+            &BasicBlock::_blockListHook
+        >
+    >;
+
+    using BlockIterator = BlockList::iterator;
+
+    struct BlockRange {
+        BlockRange(Function *fn)
+        : _fn{fn} { }
+
+        BlockIterator begin() {
+            return _fn->_blocks.begin();
+        }
+        BlockIterator end() {
+            return _fn->_blocks.end();
+        }
+
+    private:
+        Function *_fn;
+    };
+
+    BlockRange blocks() {
+        return BlockRange{this};
+    }
+
+    BasicBlock *addBlock(std::unique_ptr<BasicBlock> block) {
+        auto ptr = block.get();
+        _blocks.push_back(block.release());
+        return ptr;
+    }
+
+private:
+    BlockList _blocks;
 };
 
 //---------------------------------------------------------------------------------------

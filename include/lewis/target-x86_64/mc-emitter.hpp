@@ -7,16 +7,20 @@
 #include <vector>
 #include <lewis/elf/object.hpp>
 #include <lewis/target-x86_64/arch-ir.hpp>
+#include <lewis/util/byte-encode.hpp>
 
 namespace lewis::targets::x86_64 {
 
+// TODO: This should probably also use pimpl.
 struct MachineCodeEmitter {
-    MachineCodeEmitter(BasicBlock *bb, elf::Object *elf);
+    MachineCodeEmitter(Function *fn, elf::Object *elf);
 
     void run();
 
 private:
-    BasicBlock *_bb;
+    void _emitBlock(BasicBlock *bb, util::ByteEncoder &text);
+
+    Function *_fn;
     elf::Object *_elf;
 };
 

@@ -4,12 +4,11 @@
 #include <cassert>
 #include <elf.h>
 #include <lewis/target-x86_64/mc-emitter.hpp>
-#include <lewis/util/byte-encode.hpp>
 
 namespace lewis::targets::x86_64 {
 
-MachineCodeEmitter::MachineCodeEmitter(BasicBlock *bb, elf::Object *elf)
-: _bb{bb}, _elf{elf} { }
+MachineCodeEmitter::MachineCodeEmitter(Function *fn, elf::Object *elf)
+: _fn{fn}, _elf{elf} { }
 
 void encodeModRm(util::ByteEncoder &enc, int mod, int u, int x) {
     assert(mod <= 3 && x <= 7 && u <= 7);
@@ -36,7 +35,12 @@ void MachineCodeEmitter::run() {
     symbol->section = textSection;
 
     util::ByteEncoder text{&textSection->buffer};
-    for (auto inst : _bb->instructions()) {
+    for (auto bb : _fn->blocks())
+        _emitBlock(bb, text);
+}
+
+void MachineCodeEmitter::_emitBlock(BasicBlock *bb, util::ByteEncoder &text) {
+    for (auto inst : bb->instructions()) {
         if (auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
             assert(movMC->result()->modeRegister >= 0);
             encode8(text, 0xB8 + movMC->result()->modeRegister);
@@ -54,7 +58,7 @@ void MachineCodeEmitter::run() {
         }
     }
 
-    auto branch = _bb->branch();
+    auto branch = bb->branch();
     if (auto ret = hierarchy_cast<RetBranch *>(branch); ret) {
         encode8(text, 0xC3);
     }else if (auto jmp = hierarchy_cast<JmpBranch *>(branch); jmp) {
