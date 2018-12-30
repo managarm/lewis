@@ -40,22 +40,38 @@ struct ProgramCounter {
     SubInstruction subInstruction;
 };
 
-struct LiveInterval {
-    int allocatedRegister = -1;
+struct LiveCompound;
 
-    // Value that is allocated to the register.
-    // TODO: For inter-basic-block allocation, multiple values can be associated
-    //       with single interval. We should probably add a class 'LiveCompound'
-    //       that subsumes multiple LiveIntervals.
-    Value *associatedValue = nullptr;
+struct LiveInterval {
+    LiveCompound *compound = nullptr;
 
     // Program counters of interval origin and final use.
     ProgramCounter originPc = {-1, atInstruction};
     ProgramCounter finalPc = {-1, atInstruction};
 
+    // List of intervals that share the same compound.
+    frg::default_list_hook<LiveInterval> compoundHook;
+
     // Intrusive tree that stores all intervals.
     frg::rbtree_hook rbHook;
     frg::interval_hook<ProgramCounter> intervalHook;
+};
+
+// Encapsulates multiple LiveIntervals that are always allocated to the same register.
+struct LiveCompound {
+    // Value that is allocated to the register.
+    Value *associatedValue = nullptr;
+
+    frg::intrusive_list<
+        LiveInterval,
+        frg::locate_member<
+            LiveInterval,
+            frg::default_list_hook<LiveInterval>,
+            &LiveInterval::compoundHook
+        >
+    > intervals;
+
+    int allocatedRegister = -1;
 };
 
 struct AllocateRegistersImpl : AllocateRegistersPass {
@@ -77,7 +93,7 @@ private:
 
     // Stores all intervals that still need to be allocated.
     // TODO: Prioritize the intervals in some way, e.g. by use density.
-    std::queue<LiveInterval *> _queue;
+    std::queue<LiveCompound *> _queue;
 
     // Stores all intervals that have already been allocated.
     frg::interval_tree<
@@ -96,15 +112,16 @@ void AllocateRegistersImpl::run() {
 
     // The following loop performs the actual allocation.
     while (!_queue.empty()) {
-        auto interval = _queue.front();
+        auto compound = _queue.front();
         _queue.pop();
 
         // Determine a bitmask of registers that are already allocated.
         uint64_t registersBlocked = 0;
-        _allocated.for_overlaps([&] (LiveInterval *overlap) {
-            assert(overlap->allocatedRegister >= 0);
-            registersBlocked |= 1 << overlap->allocatedRegister;
-        }, interval->originPc, interval->finalPc);
+        for (auto interval : compound->intervals)
+            _allocated.for_overlaps([&] (LiveInterval *overlap) {
+                assert(overlap->compound->allocatedRegister >= 0);
+                registersBlocked |= 1 << overlap->compound->allocatedRegister;
+            }, interval->originPc, interval->finalPc);
 
         // Chose the first free register using the bitmask.
         // TODO: Currently, we just allocate to the first 4 registers: rax, rcx, rdx, rbx.
@@ -112,14 +129,15 @@ void AllocateRegistersImpl::run() {
         for (int i = 0; i < 4; i++) {
             if (registersBlocked & (1 << i))
                 continue;
-            interval->allocatedRegister = i;
+            compound->allocatedRegister = i;
             break;
         }
-        assert(interval->allocatedRegister >= 0
+        assert(compound->allocatedRegister >= 0
                 && "Register spilling is not implemented yet");
-        std::cout << "Allocating to register " << interval->allocatedRegister << std::endl;
+        std::cout << "Allocating to register " << compound->allocatedRegister << std::endl;
 
-        _allocated.insert(interval);
+        for (auto interval : compound->intervals)
+            _allocated.insert(interval);
     }
 
     _establishAllocation();
@@ -136,11 +154,14 @@ void AllocateRegistersImpl::_indexInstructions() {
 // Called before allocation. Generates all LiveIntervals and adds them to the queue.
 void AllocateRegistersImpl::_generateIntervals() {
     for (auto phi : _bb->phis()) {
+        auto compound = new LiveCompound;
         auto interval = new LiveInterval;
-        interval->associatedValue = phi;
+        compound->associatedValue = phi;
+        compound->intervals.push_back(interval);
+        interval->compound = compound;
         interval->originPc = {0, afterInstruction};
         interval->finalPc = _determineFinalPc(0, phi);
-        _queue.push(interval);
+        _queue.push(compound);
     }
 
     int currentIndex = 1;
@@ -148,18 +169,24 @@ void AllocateRegistersImpl::_generateIntervals() {
         assert(_indexMap.at(inst) == currentIndex);
 
         if (auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
+            auto compound = new LiveCompound;
             auto interval = new LiveInterval;
-            interval->associatedValue = movMC->result();
+            compound->associatedValue = movMC->result();
+            compound->intervals.push_back(interval);
+            interval->compound = compound;
             interval->originPc = {currentIndex, afterInstruction};
             interval->finalPc = _determineFinalPc(currentIndex, movMC->result());
-            _queue.push(interval);
+            _queue.push(compound);
         } else if (auto unaryMInPlace = hierarchy_cast<UnaryMInPlaceInstruction *>(inst);
                 unaryMInPlace) {
+            auto compound = new LiveCompound;
             auto interval = new LiveInterval;
-            interval->associatedValue = unaryMInPlace->result();
+            compound->associatedValue = unaryMInPlace->result();
+            compound->intervals.push_back(interval);
+            interval->compound = compound;
             interval->originPc = {currentIndex, afterInstruction};
             interval->finalPc = _determineFinalPc(currentIndex, unaryMInPlace->result());
-            _queue.push(interval);
+            _queue.push(compound);
         } else {
             assert(!"Unexpected IR instruction");
         }
@@ -191,7 +218,8 @@ void AllocateRegistersImpl::_establishAllocation() {
     // Find all intervals that originate from phis.
     _allocated.for_overlaps([&] (LiveInterval *interval) {
         assert(!interval->originPc.instructionIndex);
-        liveMap.insert({interval->associatedValue, interval});
+        auto compound = interval->compound;
+        liveMap.insert({compound->associatedValue, interval});
     }, {0, afterInstruction});
 
     for (auto phi : _bb->phis())
@@ -205,24 +233,28 @@ void AllocateRegistersImpl::_establishAllocation() {
         _allocated.for_overlaps([&] (LiveInterval *interval) {
             if (interval->originPc.instructionIndex != currentIndex)
                 return;
-            resultMap.insert({interval->associatedValue, interval});
+            auto compound = interval->compound;
+            resultMap.insert({compound->associatedValue, interval});
         }, {currentIndex, afterInstruction});
 
         // Emit code before the current instruction.
         if (auto movMC = hierarchy_cast<MovMCInstruction *>(*it); movMC) {
             auto resultInterval = resultMap.at(movMC->result());
-            movMC->result()->modeRegister = resultInterval->allocatedRegister;
+            auto resultCompound = resultInterval->compound;
+            movMC->result()->modeRegister = resultCompound->allocatedRegister;
         } else if (auto unaryMInPlace = hierarchy_cast<UnaryMInPlaceInstruction *>(*it);
                 unaryMInPlace) {
             auto resultInterval = resultMap.at(unaryMInPlace->result());
             auto primaryInterval = liveMap.at(unaryMInPlace->primary.get());
-            if(resultInterval->allocatedRegister != primaryInterval->allocatedRegister) {
+            auto resultCompound = resultInterval->compound;
+            auto primaryCompound = primaryInterval->compound;
+            if(resultCompound->allocatedRegister != primaryCompound->allocatedRegister) {
                 auto move = std::make_unique<MovMRInstruction>(unaryMInPlace->primary.get());
-                move->result()->modeRegister = resultInterval->allocatedRegister;
+                move->result()->modeRegister = resultCompound->allocatedRegister;
                 unaryMInPlace->primary = move->result();
                 _bb->insertInstruction(it, std::move(move));
             }
-            unaryMInPlace->result()->modeRegister = resultInterval->allocatedRegister;
+            unaryMInPlace->result()->modeRegister = resultCompound->allocatedRegister;
         } else {
             assert(!"Unexpected IR instruction");
         }
