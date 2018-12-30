@@ -13,14 +13,18 @@ int main() {
     auto b0 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
     auto b1 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
 
-    auto i0 = b0->insertInstruction(std::make_unique<lewis::LoadConstInstruction>(42));
+    auto i0 = b0->insertInstruction(std::make_unique<lewis::LoadConstInstruction>(21));
+    auto i1 = b0->insertInstruction(std::make_unique<lewis::LoadConstInstruction>(42));
+    auto i2 = b0->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
+            lewis::UnaryMathOpcode::negate, i0->result()));
+    (void)i2;
     b0->setBranch(std::make_unique<lewis::UnconditionalBranch>(b1));
 
     auto p0 = b1->attachPhi(std::make_unique<lewis::PhiNode>());
-    p0->attachEdge(std::make_unique<lewis::PhiEdge>(b0, i0->result()));
-    auto i1 = b1->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
+    p0->attachEdge(std::make_unique<lewis::PhiEdge>(b0, i1->result()));
+    auto i3 = b1->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
             lewis::UnaryMathOpcode::negate, p0));
-    (void)i1;
+    (void)i3;
     b1->setBranch(std::make_unique<lewis::FunctionReturnBranch>());
 
     auto lo0 = lewis::targets::x86_64::LowerCodePass::create(b0);

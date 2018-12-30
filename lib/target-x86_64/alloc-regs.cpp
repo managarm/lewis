@@ -59,6 +59,9 @@ struct LiveInterval {
     ProgramCounter originPc;
     ProgramCounter finalPc;
 
+    bool inMoveChain = false;
+    LiveInterval *previousMoveInChain = nullptr;
+
     // List of intervals that share the same compound.
     frg::default_list_hook<LiveInterval> compoundHook;
 
@@ -310,6 +313,92 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
         currentIndex++;
     }
+
+    // The following code emits moves to ensure that Values that are used in phis are in the
+    // correct register before a branch. It minimizes the number of move instructions.
+    // This is done as follows:
+    // - The code constructs "move chains", i.e., chains of registers that need to be moved.
+    //   For example, such a chain could be rax -> rcx -> rdx.
+    // - The last move is emitted first, as the contents of that register are not used anymore.
+    // - If a move chain forms a cycle, an additional move is necessary.
+
+    // First, determine the current register allocation.
+    LiveInterval *currentState[4] = {nullptr};
+
+    for (auto entry : liveMap) {
+        auto interval = entry.second;
+        auto compound = interval->compound;
+        assert(compound->allocatedRegister >= 0);
+        assert(!currentState[compound->allocatedRegister]);
+        currentState[compound->allocatedRegister] = interval;
+    }
+
+    _allocated.for_overlaps([&] (LiveInterval *interval) {
+        std::cout << "    Might need to move " << interval->associatedValue << std::endl;
+        resultMap.insert({interval->associatedValue, interval});
+    }, {bb, INT_MAX, afterInstruction});
+
+    // Determine the head of each move chain.
+    std::vector<LiveInterval *> headsOfChains;
+    for (auto entry : resultMap) {
+        auto entryInterval = entry.second;
+        auto entryCompound = entryInterval->compound;
+
+        // Special case self-loops in move chains (no move is necessary).
+        auto entryRegister = entryCompound->allocatedRegister;
+        assert(entryRegister >= 0);
+        if (currentState[entryRegister]
+                && currentState[entryRegister]->associatedValue == entryInterval->associatedValue)
+            continue;
+
+        // Follow the move chain starting at the current entry until it's end.
+        auto chainInterval = entryInterval;
+        while(true) {
+            if (chainInterval->inMoveChain)
+                break;
+            chainInterval->inMoveChain = true;
+
+            auto chainCompound = chainInterval->compound;
+            auto chainRegister = chainCompound->allocatedRegister;
+            assert(chainRegister >= 0);
+
+            // Check if the value that is currently in the chainRegister has to be moved.
+            auto srcInterval = currentState[chainRegister];
+            if (!srcInterval) {
+                headsOfChains.push_back(chainInterval);
+                break;
+            }
+
+            auto destIt = resultMap.find(srcInterval->associatedValue);
+            if (destIt == resultMap.end()) {
+                headsOfChains.push_back(chainInterval);
+                break;
+            }
+
+            auto destInterval = destIt->second;
+            // TODO: Otherwise, we ran into a cycle. Handle this.
+            assert(destInterval != entry.second);
+
+            // The current chainInterval was not visited before; thus, we can assert:
+            assert(!destInterval->previousMoveInChain);
+            destInterval->previousMoveInChain = chainInterval;
+            chainInterval = destInterval;
+        }
+    }
+
+    // Actually emit the move chains.
+    for (auto headOfChain : headsOfChains) {
+        auto chainInterval = headOfChain;
+        do {
+            auto move = std::make_unique<MovMRInstruction>(chainInterval->associatedValue);
+            move->result()->modeRegister = chainInterval->compound->allocatedRegister;
+            bb->insertInstruction(std::move(move));
+
+            chainInterval = chainInterval->previousMoveInChain;
+        } while (chainInterval);
+    }
+
+    // TODO: Fix the ValueUses in phi edges.
 }
 
 std::unique_ptr<AllocateRegistersPass> AllocateRegistersPass::create(Function *fn) {
