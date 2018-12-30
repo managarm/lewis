@@ -78,6 +78,7 @@ using ValueKindType = uint32_t;
 namespace value_kinds {
     enum : ValueKindType {
         null,
+        phi,
         genericResult,
 
         // Give each architecture 16k values; that should be enough.
@@ -243,11 +244,102 @@ struct UnconditionalBranch
 };
 
 //---------------------------------------------------------------------------------------
-// BasicBlock class.
+// BasicBlock class and Phi classes.
 //---------------------------------------------------------------------------------------
+
+struct PhiEdge {
+    friend struct PhiNode;
+
+    // TODO: Do not pass nullptr as an Instruction to the ValueUse.
+    PhiEdge(BasicBlock *source_ = nullptr, Value *alias_ = nullptr)
+    : source{source_}, alias{nullptr, alias_} { }
+
+    // TODO: Use a BlockBacklink class.
+    BasicBlock *source;
+    ValueUse alias;
+
+private:
+    frg::default_list_hook<PhiEdge> _edgeListHook;
+};
+
+struct PhiNode
+: Value,
+        CastableIfValueKind<PhiNode, value_kinds::phi> {
+    friend struct BasicBlock;
+
+    using EdgeList = frg::intrusive_list<
+        PhiEdge,
+        frg::locate_member<
+            PhiEdge,
+            frg::default_list_hook<PhiEdge>,
+            &PhiEdge::_edgeListHook
+        >
+    >;
+
+    using EdgeIterator = EdgeList::iterator;
+
+    struct EdgeRange {
+        EdgeRange(PhiNode *node)
+        : _node{node} { }
+
+        EdgeIterator begin() {
+            return _node->_edges.begin();
+        }
+        EdgeIterator end() {
+            return _node->_edges.end();
+        }
+
+    private:
+        PhiNode *_node;
+    };
+
+    PhiNode()
+    : Value{value_kinds::phi} { }
+
+    EdgeRange edges() {
+        return EdgeRange{this};
+    }
+
+    PhiEdge *attachEdge(std::unique_ptr<PhiEdge> edge) {
+        auto ptr = edge.get();
+        _edges.push_back(edge.release());
+        return ptr;
+    }
+
+private:
+    frg::default_list_hook<PhiNode> _phiListHook;
+
+    EdgeList _edges;
+};
 
 struct BasicBlock {
     friend struct Function;
+
+    using PhiList = frg::intrusive_list<
+        PhiNode,
+        frg::locate_member<
+            PhiNode,
+            frg::default_list_hook<PhiNode>,
+            &PhiNode::_phiListHook
+        >
+    >;
+
+    using PhiIterator = PhiList::iterator;
+
+    struct PhiRange {
+        PhiRange(BasicBlock *bb)
+        : _bb{bb} { }
+
+        PhiIterator begin() {
+            return _bb->_phis.begin();
+        }
+        PhiIterator end() {
+            return _bb->_phis.end();
+        }
+
+    private:
+        BasicBlock *_bb;
+    };
 
     using InstructionList = frg::intrusive_list<
         Instruction,
@@ -298,6 +390,20 @@ struct BasicBlock {
         BasicBlock *_bb;
     };
 
+    PhiRange phis() {
+        return PhiRange{this};
+    }
+
+    PhiNode *attachPhi(std::unique_ptr<PhiNode> phi) {
+        auto ptr = phi.get();
+        _phis.push_back(phi.release());
+        return ptr;
+    }
+
+    InstructionRange instructions() {
+        return InstructionRange{this};
+    }
+
     void doInsertInstruction(std::unique_ptr<Instruction> inst) {
         _insts.push_back(inst.release());
     }
@@ -327,10 +433,6 @@ struct BasicBlock {
         return nit;
     }
 
-    InstructionRange instructions() {
-        return InstructionRange{this};
-    }
-
     void setBranch(std::unique_ptr<Branch> branch) {
         _branch = std::move(branch);
     }
@@ -342,15 +444,8 @@ struct BasicBlock {
 private:
     frg::default_list_hook<BasicBlock> _blockListHook;
 
-    frg::intrusive_list<
-        Instruction,
-        frg::locate_member<
-            Instruction,
-            frg::default_list_hook<Instruction>,
-            &Instruction::_instListHook
-        >
-    > _insts;
-
+    PhiList _phis;
+    InstructionList _insts;
     std::unique_ptr<Branch> _branch;
 };
 

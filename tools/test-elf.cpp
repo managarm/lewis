@@ -14,11 +14,13 @@ int main() {
     auto b1 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
 
     auto i0 = b0->insertInstruction(std::make_unique<lewis::LoadConstInstruction>(42));
-    auto i1 = b0->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
-            lewis::UnaryMathOpcode::negate, i0->result()));
     b0->setBranch(std::make_unique<lewis::UnconditionalBranch>());
-    (void)i1;
 
+    auto p0 = b1->attachPhi(std::make_unique<lewis::PhiNode>());
+    auto e0 = p0->attachEdge(std::make_unique<lewis::PhiEdge>(b0, i0->result()));
+    auto i1 = b1->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
+            lewis::UnaryMathOpcode::negate, p0));
+    (void)i1;
     b1->setBranch(std::make_unique<lewis::FunctionReturnBranch>());
 
     auto lo0 = lewis::targets::x86_64::LowerCodePass::create(b0);

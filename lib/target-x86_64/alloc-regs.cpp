@@ -135,6 +135,14 @@ void AllocateRegistersImpl::_indexInstructions() {
 
 // Called before allocation. Generates all LiveIntervals and adds them to the queue.
 void AllocateRegistersImpl::_generateIntervals() {
+    for (auto phi : _bb->phis()) {
+        auto interval = new LiveInterval;
+        interval->associatedValue = phi;
+        interval->originPc = {0, afterInstruction};
+        interval->finalPc = _determineFinalPc(0, phi);
+        _queue.push(interval);
+    }
+
     int currentIndex = 1;
     for (auto inst : _bb->instructions()) {
         assert(_indexMap.at(inst) == currentIndex);
@@ -163,6 +171,8 @@ void AllocateRegistersImpl::_generateIntervals() {
 ProgramCounter AllocateRegistersImpl::_determineFinalPc(int originIndex, Value *v) {
     int finalIndex = -1;
     for (auto use : v->uses()) {
+        if (!use->instruction()) // Currently, instruction() only return null for phis.
+            return {_nInstructionIndices, beforeInstruction};
         auto useIndex = _indexMap.at(use->instruction());
         if (useIndex > finalIndex)
             finalIndex = useIndex;
@@ -177,6 +187,15 @@ ProgramCounter AllocateRegistersImpl::_determineFinalPc(int originIndex, Value *
 void AllocateRegistersImpl::_establishAllocation() {
     std::unordered_map<Value *, LiveInterval *> liveMap;
     std::unordered_map<Value *, LiveInterval *> resultMap;
+
+    // Find all intervals that originate from phis.
+    _allocated.for_overlaps([&] (LiveInterval *interval) {
+        assert(!interval->originPc.instructionIndex);
+        liveMap.insert({interval->associatedValue, interval});
+    }, {0, afterInstruction});
+
+    for (auto phi : _bb->phis())
+        assert(liveMap.find(phi) != liveMap.end());
 
     int currentIndex = 1;
     for (auto it = _bb->instructions().begin(); it != _bb->instructions().end(); ++it) {
