@@ -13,4 +13,10 @@ struct BasicBlockPass {
     virtual void run() = 0;
 };
 
+struct FunctionPass {
+    virtual ~FunctionPass() = default;
+
+    virtual void run() = 0;
+};
+
 } // namespace lewis::elf

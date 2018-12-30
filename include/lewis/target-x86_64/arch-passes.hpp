@@ -16,8 +16,8 @@ struct LowerCodePass : BasicBlockPass {
 };
 
 // Allocate registers in x86 IR.
-struct AllocateRegistersPass : BasicBlockPass {
-    static std::unique_ptr<AllocateRegistersPass> create(BasicBlock *bb);
+struct AllocateRegistersPass : FunctionPass {
+    static std::unique_ptr<AllocateRegistersPass> create(Function *fn);
 };
 
 } // namespace lewis::targets::x86_64

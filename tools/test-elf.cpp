@@ -24,13 +24,11 @@ int main() {
     b1->setBranch(std::make_unique<lewis::FunctionReturnBranch>());
 
     auto lo0 = lewis::targets::x86_64::LowerCodePass::create(b0);
-    auto ra0 = lewis::targets::x86_64::AllocateRegistersPass::create(b0);
-    lo0->run();
-    ra0->run();
     auto lo1 = lewis::targets::x86_64::LowerCodePass::create(b1);
-    auto ra1 = lewis::targets::x86_64::AllocateRegistersPass::create(b1);
     lo1->run();
-    ra1->run();
+    lo0->run();
+    auto ra = lewis::targets::x86_64::AllocateRegistersPass::create(&f0);
+    ra->run();
 
     lewis::elf::Object elf;
     lewis::targets::x86_64::MachineCodeEmitter mce{&f0, &elf};
