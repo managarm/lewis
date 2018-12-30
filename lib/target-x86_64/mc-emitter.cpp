@@ -50,8 +50,18 @@ void MachineCodeEmitter::run() {
             encode8(text, 0xF7);
             encodeMode(text, negM->result(), 3);
         } else {
-            assert(!"Unexpected machine code instruction");
+            assert(!"Unexpected x86_64 IR instruction");
         }
+    }
+
+    auto branch = _bb->branch();
+    if (auto ret = hierarchy_cast<RetBranch *>(branch); ret) {
+        encode8(text, 0xC3);
+    }else if (auto jmp = hierarchy_cast<JmpBranch *>(branch); jmp) {
+        encode8(text, 0xE9);
+        encode32(text, 0); // TODO: Generate a relocation here.
+    } else {
+        assert(!"Unexpected x86_64 IR branch");
     }
 }
 

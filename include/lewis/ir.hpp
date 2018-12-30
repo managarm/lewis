@@ -12,12 +12,13 @@
 
 namespace lewis {
 
+struct Value;
+struct Instruction;
+struct BasicBlock;
+
 //---------------------------------------------------------------------------------------
 // ValueUse class to represent "uses" of a Value.
 //---------------------------------------------------------------------------------------
-
-struct Value;
-struct Instruction;
 
 // Represents a single "use" of a Value. This is necessary to support Value replacement.
 // For convenience, this class also has a Value pointer-like interface.
@@ -188,6 +189,63 @@ struct IsInstructionKind<K> {
 template<typename T, InstructionKindType... S>
 struct CastableIfInstructionKind : Castable<T, IsInstructionKind<S...>> { };
 
+//---------------------------------------------------------------------------------------
+// Branch base class.
+//---------------------------------------------------------------------------------------
+
+// Defines an ID for each subclass of Branch.
+using BranchKindType = uint32_t;
+
+namespace branch_kinds {
+    enum : BranchKindType {
+        null,
+        functionReturn,
+        unconditional,
+
+        // Give each architecture 16k branches; that should be enough.
+        kindsForX86 = 1 << 14
+    };
+}
+
+struct Branch {
+    Branch(BranchKindType kind_)
+    : kind{kind_} { }
+
+    const BranchKindType kind;
+};
+
+template<BranchKindType K>
+struct IsBranchKind {
+    bool operator() (Branch *p) {
+        return p->kind == K;
+    }
+};
+
+// Template magic to enable hierarchy_cast<>.
+template<typename T, BranchKindType... S>
+struct CastableIfBranchKind : Castable<T, IsBranchKind<S...>> { };
+
+struct FunctionReturnBranch
+: Branch,
+        CastableIfBranchKind<FunctionReturnBranch, branch_kinds::functionReturn> {
+    FunctionReturnBranch()
+    : Branch{branch_kinds::functionReturn} { }
+};
+
+struct UnconditionalBranch
+: Branch,
+        CastableIfBranchKind<UnconditionalBranch, branch_kinds::unconditional> {
+    UnconditionalBranch(BasicBlock *target_ = nullptr)
+    : Branch{branch_kinds::unconditional}, target{target_} { }
+
+    // TODO: Use a BlockLink class similar to ValueUse.
+    BasicBlock *target;
+};
+
+//---------------------------------------------------------------------------------------
+// BasicBlocks class.
+//---------------------------------------------------------------------------------------
+
 struct BasicBlock {
     using InstructionList = frg::intrusive_list<
         Instruction,
@@ -271,6 +329,14 @@ struct BasicBlock {
         return InstructionRange{this};
     }
 
+    void setBranch(std::unique_ptr<Branch> branch) {
+        _branch = std::move(branch);
+    }
+
+    Branch *branch() {
+        return _branch.get();
+    }
+
 private:
     frg::intrusive_list<
         Instruction,
@@ -280,6 +346,8 @@ private:
             &Instruction::_listHook
         >
     > _insts;
+
+    std::unique_ptr<Branch> _branch;
 };
 
 //---------------------------------------------------------------------------------------

@@ -11,8 +11,10 @@
 int main() {
     lewis::BasicBlock bb;
     auto i0 = bb.insertInstruction(std::make_unique<lewis::LoadConstInstruction>(42));
-    bb.insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
+    auto i1 = bb.insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
             lewis::UnaryMathOpcode::negate, i0->result()));
+    bb.setBranch(std::make_unique<lewis::UnconditionalBranch>());
+    (void)i1;
 
     auto lower = lewis::targets::x86_64::LowerCodePass::create(&bb);
     auto ra = lewis::targets::x86_64::AllocateRegistersPass::create(&bb);

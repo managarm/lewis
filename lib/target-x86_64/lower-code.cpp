@@ -35,6 +35,17 @@ void LowerCodeImpl::run() {
             assert(!"Unexpected generic IR instruction");
         }
     }
+
+    auto branch = _bb->branch();
+    if (auto functionReturn = hierarchy_cast<FunctionReturnBranch *>(branch); functionReturn) {
+        auto lower = std::make_unique<RetBranch>();
+        _bb->setBranch(std::move(lower));
+    }else if (auto unconditional = hierarchy_cast<UnconditionalBranch *>(branch); unconditional) {
+        auto lower = std::make_unique<JmpBranch>(unconditional->target);
+        _bb->setBranch(std::move(lower));
+    } else {
+        assert(!"Unexpected generic IR branch");
+    }
 }
 
 std::unique_ptr<LowerCodePass> LowerCodePass::create(BasicBlock *bb) {

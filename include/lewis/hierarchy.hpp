@@ -15,6 +15,8 @@ template<typename D, typename P>
 struct Castable {
     template<typename B>
     friend D *castTaggedPointer(HierarchyTag<D>, B *p) {
+        if (!p)
+            return nullptr;
         P pred;
         if (!pred(p))
             return nullptr;

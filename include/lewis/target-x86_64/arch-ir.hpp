@@ -28,6 +28,14 @@ namespace arch_instruction_kinds {
     };
 }
 
+namespace arch_branch_kinds {
+    enum : BranchKindType {
+        unused = instruction_kinds::kindsForX86,
+        ret,
+        jmp,
+    };
+}
+
 struct ModeMResult
 : Value,
         CastableIfValueKind<ModeMResult, value_kinds::genericResult> {
@@ -88,6 +96,23 @@ struct NegMInstruction
         CastableIfInstructionKind<NegMInstruction, arch_instruction_kinds::negM> {
     NegMInstruction(Value *primary_ = nullptr)
     : UnaryMInPlaceInstruction{arch_instruction_kinds::negM, primary_} { }
+};
+
+struct RetBranch
+: Branch,
+        CastableIfBranchKind<RetBranch, arch_branch_kinds::ret> {
+    RetBranch()
+    : Branch{arch_branch_kinds::ret} { }
+};
+
+struct JmpBranch
+: Branch,
+        CastableIfBranchKind<JmpBranch, arch_branch_kinds::jmp> {
+    JmpBranch(BasicBlock *target_ = nullptr)
+    : Branch{arch_branch_kinds::jmp}, target{target_} { }
+
+    // TODO: Use a BlockLink class similar to ValueUse.
+    BasicBlock *target;
 };
 
 } // namespace lewis::targets::x86_64
