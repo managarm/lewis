@@ -22,7 +22,7 @@ namespace arch_instruction_kinds {
     // C: Immediate constant.
     enum : InstructionKindType {
         unused = instruction_kinds::kindsForX86,
-        definePhi,
+        xchgMR,
         movMC,
         movMR,
         negM,
@@ -106,6 +106,30 @@ struct MovMRInstruction
         CastableIfInstructionKind<MovMRInstruction, arch_instruction_kinds::movMR> {
     MovMRInstruction(Value *operand_ = nullptr)
     : UnaryMOverwriteInstruction{arch_instruction_kinds::movMR, operand_} { }
+};
+
+struct XchgMRInstruction
+: Instruction,
+        CastableIfInstructionKind<XchgMRInstruction, arch_instruction_kinds::xchgMR>{
+
+    XchgMRInstruction(Value *first = nullptr, Value *second = nullptr)
+    : Instruction{arch_instruction_kinds::xchgMR},
+        firstOperand{this, first}, secondOperand{this, second} { }
+
+    ModeMResult *firstResult() {
+        return &_firstResult;
+    }
+
+    ModeMResult *secondResult() {
+        return &_secondResult;
+    }
+
+    ValueUse firstOperand;
+    ValueUse secondOperand;
+
+private:
+    ModeMResult _firstResult;
+    ModeMResult _secondResult;
 };
 
 struct NegMInstruction

@@ -143,6 +143,10 @@ void AllocateRegistersImpl::run() {
         assert(compound->allocatedRegister >= 0
                 && "Register spilling is not implemented yet");
         std::cout << "Allocating to register " << compound->allocatedRegister << std::endl;
+        for (auto interval : compound->intervals)
+            std::cout << "    Affects " << interval->associatedValue
+                    << " at [" << interval->originPc.instructionIndex
+                    << ", " << interval->finalPc.instructionIndex << "]" << std::endl;
 
         for (auto interval : compound->intervals)
             _allocated.insert(interval);
@@ -341,18 +345,22 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
     }
 
     _allocated.for_overlaps([&] (LiveInterval *interval) {
-        std::cout << "    Might need to move " << interval->associatedValue << std::endl;
         resultMap.insert({interval->associatedValue, interval});
     }, {bb, INT_MAX, afterInstruction});
 
     // Determine the head of each move chain.
-    std::vector<LiveInterval *> headsOfChains;
+    struct MoveChain {
+        LiveInterval *lastInChain;
+        bool isCyclic = false;
+    };
+    std::vector<MoveChain> chainList;
     for (auto entry : resultMap) {
         auto entryInterval = entry.second;
-        auto entryCompound = entryInterval->compound;
+        std::cout << "    Expanding move chain at "
+                << entryInterval->associatedValue << std::endl;
 
         // Special case self-loops in move chains (no move is necessary).
-        auto entryRegister = entryCompound->allocatedRegister;
+        auto entryRegister = entryInterval->compound->allocatedRegister;
         assert(entryRegister >= 0);
         if (currentState[entryRegister]
                 && currentState[entryRegister]->associatedValue == entryInterval->associatedValue)
@@ -365,26 +373,32 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 break;
             chainInterval->inMoveChain = true;
 
-            auto chainCompound = chainInterval->compound;
-            auto chainRegister = chainCompound->allocatedRegister;
+            auto chainRegister = chainInterval->compound->allocatedRegister;
             assert(chainRegister >= 0);
 
             // Check if the value that is currently in the chainRegister has to be moved.
             auto srcInterval = currentState[chainRegister];
             if (!srcInterval) {
-                headsOfChains.push_back(chainInterval);
+                chainList.push_back({chainInterval, false});
                 break;
             }
 
             auto destIt = resultMap.find(srcInterval->associatedValue);
             if (destIt == resultMap.end()) {
-                headsOfChains.push_back(chainInterval);
+                chainList.push_back({chainInterval, false});
                 break;
             }
 
             auto destInterval = destIt->second;
-            // TODO: Otherwise, we ran into a cycle. Handle this.
-            assert(destInterval != entry.second);
+            std::cout << destInterval->associatedValue << std::endl;
+            std::cout << "        Move chain: " << srcInterval->associatedValue
+                    << " from " << chainRegister
+                    << " to " << destInterval->compound->allocatedRegister << std::endl;
+            if (destInterval == entryInterval) {
+                // We ran into a cycle.
+                chainList.push_back({chainInterval, true});
+                break;
+            }
 
             // The current chainInterval was not visited before; thus, we can assert:
             assert(!destInterval->previousMoveInChain);
@@ -394,16 +408,36 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
     }
 
     // Actually emit the move chains.
-    for (auto headOfChain : headsOfChains) {
-        auto chainInterval = headOfChain;
-        do {
-            assert(chainInterval->associatedValue);
-            auto move = std::make_unique<MovMRInstruction>(chainInterval->associatedValue);
-            move->result()->modeRegister = chainInterval->compound->allocatedRegister;
-            bb->insertInstruction(std::move(move));
+    for (const auto &moveChain : chainList) {
+        if (!moveChain.isCyclic) {
+            // The move chain is a path.
+            auto chainInterval = moveChain.lastInChain;
+            do {
+                assert(chainInterval->associatedValue);
+                auto move = std::make_unique<MovMRInstruction>(chainInterval->associatedValue);
+                move->result()->modeRegister = chainInterval->compound->allocatedRegister;
+                bb->insertInstruction(std::move(move));
 
-            chainInterval = chainInterval->previousMoveInChain;
-        } while (chainInterval);
+                chainInterval = chainInterval->previousMoveInChain;
+            } while (chainInterval);
+        } else {
+            // The move chain is a cycle.
+            auto nextResult = moveChain.lastInChain->associatedValue;
+            auto nextRegister = moveChain.lastInChain->compound->allocatedRegister;
+            auto chainInterval = moveChain.lastInChain->previousMoveInChain;
+            do {
+                assert(chainInterval->associatedValue);
+                auto move = std::make_unique<XchgMRInstruction>(nextResult,
+                        chainInterval->associatedValue);
+                move->firstResult()->modeRegister = nextRegister;
+                move->secondResult()->modeRegister = chainInterval->compound->allocatedRegister;
+                nextResult = move->secondResult();
+                nextRegister = chainInterval->compound->allocatedRegister;
+                bb->insertInstruction(std::move(move));
+
+                chainInterval = chainInterval->previousMoveInChain;
+            } while (chainInterval);
+        }
     }
 
     // TODO: Fix the ValueUses in phi edges.

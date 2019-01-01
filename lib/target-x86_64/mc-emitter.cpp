@@ -72,6 +72,9 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, util::ByteEncoder &text) {
         } else if (auto movMR = hierarchy_cast<MovMRInstruction *>(inst); movMR) {
             encode8(text, 0x89);
             encodeMode(text, movMR->result(), movMR->operand.get());
+        } else if (auto xchgMR = hierarchy_cast<XchgMRInstruction *>(inst); xchgMR) {
+            encode8(text, 0x87);
+            encodeMode(text, xchgMR->firstResult(), xchgMR->secondResult());
         } else if (auto negM = hierarchy_cast<NegMInstruction *>(inst); negM) {
             encode8(text, 0xF7);
             encodeMode(text, negM->result(), 3);
