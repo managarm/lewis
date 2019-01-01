@@ -111,8 +111,8 @@ struct Value {
 
     using UseIterator = UseList::iterator;
 
-    Value(ValueKindType kind_)
-    : kind{kind_} { }
+    Value(ValueKindType valueKind_)
+    : valueKind{valueKind_} { }
 
     UseRange uses() {
         return UseRange{this};
@@ -120,7 +120,7 @@ struct Value {
 
     void replaceAllUses(Value *other);
 
-    const ValueKindType kind;
+    const ValueKindType valueKind;
 
 private:
     // Linked list of all uses of this Value.
@@ -131,7 +131,7 @@ private:
 template<ValueKindType K>
 struct IsValueKind {
     bool operator() (Value *p) {
-        return p->kind == K;
+        return p->valueKind == K;
     }
 };
 
@@ -247,6 +247,19 @@ struct UnconditionalBranch
 // BasicBlock class and Phi classes.
 //---------------------------------------------------------------------------------------
 
+// Defines an ID for each subclass of PhiNode.
+using PhiKindType = uint32_t;
+
+namespace phi_kinds {
+    enum : PhiKindType {
+        null,
+        generic,
+
+        // Give each architecture 16k values; that should be enough.
+        kindsForX86 = 1 << 14
+    };
+}
+
 struct PhiEdge {
     friend struct PhiNode;
 
@@ -293,8 +306,8 @@ struct PhiNode
         PhiNode *_node;
     };
 
-    PhiNode()
-    : Value{value_kinds::phi} { }
+    PhiNode(PhiKindType phiKind_)
+    : Value{value_kinds::phi}, phiKind{phiKind_} { }
 
     EdgeRange edges() {
         return EdgeRange{this};
@@ -306,10 +319,29 @@ struct PhiNode
         return ptr;
     }
 
+    const PhiKindType phiKind;
+
 private:
     frg::default_list_hook<PhiNode> _phiListHook;
 
     EdgeList _edges;
+};
+
+// Template magic to enable hierarchy_cast<>.
+template<PhiKindType K>
+struct IsPhiKind {
+    bool operator() (PhiNode *p) {
+        return p->phiKind == K;
+    }
+};
+
+// Template magic to enable hierarchy_cast<>.
+template<typename T, PhiKindType... S>
+struct CastableIfPhiKind : Castable<T, IsPhiKind<S...>> { };
+
+struct GenericPhiNode : PhiNode {
+    GenericPhiNode()
+    : PhiNode{phi_kinds::generic} { }
 };
 
 struct BasicBlock {
@@ -398,6 +430,13 @@ struct BasicBlock {
         auto ptr = phi.get();
         _phis.push_back(phi.release());
         return ptr;
+    }
+
+    PhiIterator replacePhi(PhiIterator from, std::unique_ptr<PhiNode> to) {
+        auto it = from;
+        auto nit = _phis.insert(it, to.release());
+        _phis.erase(it);
+        return nit;
     }
 
     InstructionRange instructions() {

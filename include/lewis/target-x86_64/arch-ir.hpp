@@ -22,9 +22,17 @@ namespace arch_instruction_kinds {
     // C: Immediate constant.
     enum : InstructionKindType {
         unused = instruction_kinds::kindsForX86,
+        definePhi,
         movMC,
         movMR,
         negM,
+    };
+}
+
+namespace arch_phi_kinds {
+    enum : PhiKindType {
+        unused = phi_kinds::kindsForX86,
+        modeM
     };
 }
 
@@ -38,11 +46,20 @@ namespace arch_branch_kinds {
 
 struct ModeMResult
 : Value,
-        CastableIfValueKind<ModeMResult, value_kinds::genericResult> {
+        CastableIfValueKind<ModeMResult, arch_value_kinds::modeMResult> {
     ModeMResult()
-    : Value{value_kinds::genericResult} { }
+    : Value{arch_value_kinds::modeMResult} { }
 
-    int modeRegister = 0;
+    int modeRegister = -1;
+};
+
+struct ModeMPhiNode
+: PhiNode,
+        CastableIfPhiKind<ModeMPhiNode, arch_phi_kinds::modeM> {
+    ModeMPhiNode()
+    : PhiNode{arch_phi_kinds::modeM} { }
+
+    int modeRegister = -1;
 };
 
 struct WithModeMResult {

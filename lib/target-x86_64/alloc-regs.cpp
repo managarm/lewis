@@ -174,6 +174,7 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
 
         for (auto edge : phi->edges()) {
             auto aliasInterval = new LiveInterval;
+            assert(edge->alias);
             compound->intervals.push_back(aliasInterval);
             aliasInterval->associatedValue = edge->alias.get();
             aliasInterval->compound = compound;
@@ -244,12 +245,17 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
         liveMap.insert({interval->associatedValue, interval});
     }, {bb, 0, afterInstruction});
 
-    for (auto phi : bb->phis())
-        assert(liveMap.find(phi) != liveMap.end());
+    for (auto phi : bb->phis()) {
+        auto modeM = hierarchy_cast<ModeMPhiNode *>(phi);
+        assert(modeM);
+        auto interval = liveMap.at(phi);
+        modeM->modeRegister = interval->compound->allocatedRegister;
+    }
 
     int currentIndex = 1;
     for (auto it = bb->instructions().begin(); it != bb->instructions().end(); ++it) {
-        std::cout << "    Fixing instruction " << currentIndex << std::endl;
+        std::cout << "    Fixing instruction " << currentIndex << ", kind "
+                << (*it)->kind << std::endl;
         assert(_indexMap.at(*it) == currentIndex);
 
         // Find all intervals that originate from the current PC.
@@ -267,6 +273,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             movMC->result()->modeRegister = resultCompound->allocatedRegister;
         } else if (auto unaryMInPlace = hierarchy_cast<UnaryMInPlaceInstruction *>(*it);
                 unaryMInPlace) {
+            assert(unaryMInPlace->primary);
             auto resultInterval = resultMap.at(unaryMInPlace->result());
             auto primaryInterval = liveMap.at(unaryMInPlace->primary.get());
             auto resultCompound = resultInterval->compound;
@@ -390,6 +397,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
     for (auto headOfChain : headsOfChains) {
         auto chainInterval = headOfChain;
         do {
+            assert(chainInterval->associatedValue);
             auto move = std::make_unique<MovMRInstruction>(chainInterval->associatedValue);
             move->result()->modeRegister = chainInterval->compound->allocatedRegister;
             bb->insertInstruction(std::move(move));

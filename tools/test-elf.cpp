@@ -20,11 +20,14 @@ int main() {
     (void)i2;
     b0->setBranch(std::make_unique<lewis::UnconditionalBranch>(b1));
 
-    auto p0 = b1->attachPhi(std::make_unique<lewis::PhiNode>());
+    auto p0 = b1->attachPhi(std::make_unique<lewis::GenericPhiNode>());
     p0->attachEdge(std::make_unique<lewis::PhiEdge>(b0, i1->result()));
     auto i3 = b1->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
             lewis::UnaryMathOpcode::negate, p0));
     (void)i3;
+    auto i4 = b1->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
+            lewis::UnaryMathOpcode::negate, p0));
+    (void)i4;
     b1->setBranch(std::make_unique<lewis::FunctionReturnBranch>());
 
     auto lo0 = lewis::targets::x86_64::LowerCodePass::create(b0);

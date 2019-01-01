@@ -19,6 +19,14 @@ private:
 };
 
 void LowerCodeImpl::run() {
+    for (auto it = _bb->phis().begin(); it != _bb->phis().end(); ++it) {
+        auto lower = std::make_unique<ModeMPhiNode>();
+        for(auto edge : (*it)->edges())
+            lower->attachEdge(std::make_unique<PhiEdge>(edge->source, edge->alias.get()));
+        (*it)->replaceAllUses(lower.get());
+        it = _bb->replacePhi(it, std::move(lower));
+    }
+
     for (auto it = _bb->instructions().begin(); it != _bb->instructions().end(); ++it) {
         if (auto loadConst = hierarchy_cast<LoadConstInstruction *>(*it); loadConst) {
             auto lower = std::make_unique<MovMCInstruction>();
