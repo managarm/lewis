@@ -159,8 +159,9 @@ void AllocateRegistersImpl::run() {
 // Called before allocation. Generates all LiveIntervals and adds them to the queue.
 void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
     // Map instructions to monotonically increasing numbers.
-    int nInstructionIndices = 1;
+    size_t nInstructionIndices = 1;
     for (auto inst : bb->instructions()) {
+        assert(bb->indexOfInstruction(inst) + 1 == nInstructionIndices);
         _indexMap.insert({inst, nInstructionIndices});
         nInstructionIndices++;
     }

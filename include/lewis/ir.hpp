@@ -170,6 +170,7 @@ struct Instruction {
 private:
     BasicBlock *_bb = nullptr;
     frg::rbtree_hook _instTreeHook;
+    size_t _numSubtreeInstr = 1;
 };
 
 // Template magic to enable hierarchy_cast<>.
@@ -376,10 +377,33 @@ struct BasicBlock {
         BasicBlock *_bb;
     };
 
+    struct InstructionAggregator;
+
     using InstructionTree = frg::rbtree_order<
         Instruction,
-        &Instruction::_instTreeHook
+        &Instruction::_instTreeHook,
+        InstructionAggregator
     >;
+
+    // Helper class for frg::rbtree_order. Allows us to calculate instruction indices quickly.
+    struct InstructionAggregator {
+        static bool aggregate(Instruction *inst) {
+            size_t newSubtreeInstr = 1;
+            if(InstructionTree::get_left(inst))
+                newSubtreeInstr += InstructionTree::get_left(inst)->_numSubtreeInstr;
+            if(InstructionTree::get_right(inst))
+                newSubtreeInstr += InstructionTree::get_right(inst)->_numSubtreeInstr;
+
+            if(newSubtreeInstr == inst->_numSubtreeInstr)
+                return false;
+            inst->_numSubtreeInstr = newSubtreeInstr;
+            return true;
+        }
+
+        static bool check_invariant(InstructionTree &, Instruction *) {
+            return true;
+        }
+    };
 
     struct InstructionIterator {
         friend struct BasicBlock;
@@ -439,6 +463,41 @@ struct BasicBlock {
 
     InstructionRange instructions() {
         return InstructionRange{this};
+    }
+
+    // Computes the index of an instruction. Can be used to compare the position of instructions.
+    // Note that the index changes if instructions are inserted before the given one.
+    size_t indexOfInstruction(Instruction *inst) {
+        if (!inst) {
+            // Return the size of the tree.
+            auto root = _insts.get_root();
+            if (root) {
+                return root->_numSubtreeInstr;
+            } else {
+                return 0;
+            }
+        }
+
+        // Find the position of the instruction inside the rbtree.
+        size_t index = 0;
+        if (InstructionTree::get_left(inst))
+            index += InstructionTree::get_left(inst)->_numSubtreeInstr;
+
+        Instruction *current = inst;
+        while (true) {
+            auto parent = InstructionTree::get_parent(current);
+            if (!parent)
+                return index;
+
+            if (InstructionTree::get_right(parent) == current) {
+                if (InstructionTree::get_left(parent))
+                    index += InstructionTree::get_left(parent)->_numSubtreeInstr;
+                index += 1;
+            }
+            current = parent;
+        }
+
+        return index;
     }
 
     void doInsertInstruction(std::unique_ptr<Instruction> inst) {
