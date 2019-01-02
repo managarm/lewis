@@ -4,10 +4,12 @@
 #pragma once
 
 #include <array>
+#include <cassert>
 #include <algorithm>
 #include <memory>
 #include <vector>
 #include <frg/list.hpp>
+#include <frg/rbtree.hpp>
 #include <lewis/hierarchy.hpp>
 
 namespace lewis {
@@ -166,7 +168,7 @@ struct Instruction {
     const InstructionKindType kind;
 
 private:
-    frg::default_list_hook<Instruction> _instListHook;
+    frg::rbtree_hook _instTreeHook;
 };
 
 // Template magic to enable hierarchy_cast<>.
@@ -373,38 +375,33 @@ struct BasicBlock {
         BasicBlock *_bb;
     };
 
-    using InstructionList = frg::intrusive_list<
+    using InstructionTree = frg::rbtree_order<
         Instruction,
-        frg::locate_member<
-            Instruction,
-            frg::default_list_hook<Instruction>,
-            &Instruction::_instListHook
-        >
+        &Instruction::_instTreeHook
     >;
 
     struct InstructionIterator {
         friend struct BasicBlock;
-    private:
-        using Base = InstructionList::iterator;
-
     public:
-        InstructionIterator(Base b)
-        : _b{b} { }
+        InstructionIterator(Instruction *inst)
+        : _inst{inst} { }
 
         bool operator!= (const InstructionIterator &other) const {
-            return _b != other._b;
+            return _inst != other._inst;
         }
 
         Instruction *operator* () const {
-            return *_b;
+            assert(_inst);
+            return _inst;
         }
 
         void operator++ () {
-            ++_b;
+            assert(_inst);
+            _inst = InstructionTree::successor(_inst);
         }
 
     private:
-        Base _b;
+        Instruction *_inst;
     };
 
     struct InstructionRange {
@@ -412,10 +409,10 @@ struct BasicBlock {
         : _bb{bb} { }
 
         InstructionIterator begin() {
-            return InstructionIterator{_bb->_insts.begin()};
+            return InstructionIterator{_bb->_insts.first()};
         }
         InstructionIterator end() {
-            return InstructionIterator{_bb->_insts.end()};
+            return InstructionIterator{nullptr};
         }
 
     private:
@@ -444,11 +441,11 @@ struct BasicBlock {
     }
 
     void doInsertInstruction(std::unique_ptr<Instruction> inst) {
-        _insts.push_back(inst.release());
+        _insts.insert(nullptr, inst.release());
     }
 
     void doInsertInstruction(InstructionIterator before, std::unique_ptr<Instruction> inst) {
-        _insts.insert(before._b, inst.release());
+        _insts.insert(before._inst, inst.release());
     }
 
     template<typename I>
@@ -466,10 +463,10 @@ struct BasicBlock {
     }
 
     InstructionIterator replaceInstruction(InstructionIterator from, std::unique_ptr<Instruction> to) {
-        auto it = from._b;
-        auto nit = _insts.insert(it, to.release());
-        _insts.erase(it);
-        return nit;
+        auto ptr = to.get();
+        _insts.insert(from._inst, to.release());
+        _insts.remove(from._inst);
+        return InstructionIterator{ptr};
     }
 
     void setBranch(std::unique_ptr<Branch> branch) {
@@ -484,7 +481,7 @@ private:
     frg::default_list_hook<BasicBlock> _blockListHook;
 
     PhiList _phis;
-    InstructionList _insts;
+    InstructionTree _insts;
     std::unique_ptr<Branch> _branch;
 };
 
