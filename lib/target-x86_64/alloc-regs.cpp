@@ -1,6 +1,5 @@
 
 #include <cassert>
-#include <climits>
 #include <iostream>
 #include <queue>
 #include <unordered_map>
@@ -10,19 +9,26 @@
 
 namespace lewis::targets::x86_64 {
 
+enum SubBlock {
+    beforeBlock = -1,
+    inBlock = 0,
+    afterBlock = 1,
+};
+
 // We need to be able to distinguish the allocation situation before and after an instruction.
 // The atInstruction value is not really used.
 enum SubInstruction {
     beforeInstruction = -1,
     atInstruction = 0,
-    afterInstruction = 1
+    afterInstruction = 1,
 };
 
 // Represents a point in the program at which we perform register allocation.
 struct ProgramCounter {
     bool operator== (const ProgramCounter &other) const {
         return block == other.block
-                && instructionIndex == other.instructionIndex
+                && subBlock == other.subBlock
+                && instruction == other.instruction
                 && subInstruction == other.subInstruction;
     }
     bool operator!= (const ProgramCounter &other) const {
@@ -32,8 +38,14 @@ struct ProgramCounter {
     bool operator< (const ProgramCounter &other) const {
         if (block != other.block)
             return block < other.block;
-        if (instructionIndex != other.instructionIndex)
-            return instructionIndex < other.instructionIndex;
+        if (subBlock != other.subBlock)
+            return subBlock < other.subBlock;
+        if (instruction != other.instruction) {
+            auto index = block->indexOfInstruction(instruction);
+            auto otherIndex = block->indexOfInstruction(other.instruction);
+            if (index != otherIndex)
+                return index < otherIndex;
+        }
         return subInstruction < other.subInstruction;
     }
     bool operator<= (const ProgramCounter &other) const {
@@ -41,7 +53,8 @@ struct ProgramCounter {
     }
 
     BasicBlock *block = nullptr;
-    int instructionIndex = -1;
+    SubBlock subBlock = inBlock;
+    Instruction *instruction = nullptr;
     SubInstruction subInstruction = atInstruction;
 };
 
@@ -92,12 +105,10 @@ struct AllocateRegistersImpl : AllocateRegistersPass {
 
 private:
     void _collectIntervals(BasicBlock *bb);
-    ProgramCounter _determineFinalPc(BasicBlock *bb, int originIndex, Value *v);
+    ProgramCounter _determineFinalPc(BasicBlock *bb, Instruction *origin, Value *v);
     void _establishAllocation(BasicBlock *bb);
 
     Function *_fn;
-
-    std::unordered_map<Instruction *, int> _indexMap;
 
     // Stores all intervals that still need to be allocated.
     // TODO: Prioritize the intervals in some way, e.g. by use density.
@@ -145,8 +156,8 @@ void AllocateRegistersImpl::run() {
         std::cout << "Allocating to register " << compound->allocatedRegister << std::endl;
         for (auto interval : compound->intervals)
             std::cout << "    Affects " << interval->associatedValue
-                    << " at [" << interval->originPc.instructionIndex
-                    << ", " << interval->finalPc.instructionIndex << "]" << std::endl;
+                    << " at [" << interval->originPc.instruction
+                    << ", " << interval->finalPc.instruction << "]" << std::endl;
 
         for (auto interval : compound->intervals)
             _allocated.insert(interval);
@@ -158,14 +169,6 @@ void AllocateRegistersImpl::run() {
 
 // Called before allocation. Generates all LiveIntervals and adds them to the queue.
 void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
-    // Map instructions to monotonically increasing numbers.
-    size_t nInstructionIndices = 1;
-    for (auto inst : bb->instructions()) {
-        assert(bb->indexOfInstruction(inst) + 1 == nInstructionIndices);
-        _indexMap.insert({inst, nInstructionIndices});
-        nInstructionIndices++;
-    }
-
     // Generate LiveIntervals for phis.
     for (auto phi : bb->phis()) {
         auto compound = new LiveCompound;
@@ -174,7 +177,7 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
         compound->intervals.push_back(nodeInterval);
         nodeInterval->associatedValue = phi;
         nodeInterval->compound = compound;
-        nodeInterval->originPc = {bb, 0, afterInstruction};
+        nodeInterval->originPc = {bb, beforeBlock, nullptr, afterInstruction};
         nodeInterval->finalPc = _determineFinalPc(bb, 0, phi);
 
         for (auto edge : phi->edges()) {
@@ -183,26 +186,23 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             compound->intervals.push_back(aliasInterval);
             aliasInterval->associatedValue = edge->alias.get();
             aliasInterval->compound = compound;
-            aliasInterval->originPc = {edge->source, INT_MAX, afterInstruction};
-            aliasInterval->finalPc = {edge->source, INT_MAX, afterInstruction};
+            aliasInterval->originPc = {edge->source, afterBlock, nullptr, afterInstruction};
+            aliasInterval->finalPc = {edge->source, afterBlock, nullptr, afterInstruction};
         }
 
         _queue.push(compound);
     }
 
     // Generate LiveIntervals for instructions.
-    int currentIndex = 1;
     for (auto inst : bb->instructions()) {
-        assert(_indexMap.at(inst) == currentIndex);
-
         if (auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
             auto compound = new LiveCompound;
             auto interval = new LiveInterval;
             compound->intervals.push_back(interval);
             interval->associatedValue = movMC->result();
             interval->compound = compound;
-            interval->originPc = {bb, currentIndex, afterInstruction};
-            interval->finalPc = _determineFinalPc(bb, currentIndex, movMC->result());
+            interval->originPc = {bb, inBlock, inst, afterInstruction};
+            interval->finalPc = _determineFinalPc(bb, inst, movMC->result());
             _queue.push(compound);
         } else if (auto unaryMInPlace = hierarchy_cast<UnaryMInPlaceInstruction *>(inst);
                 unaryMInPlace) {
@@ -211,29 +211,32 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             compound->intervals.push_back(interval);
             interval->associatedValue = unaryMInPlace->result();
             interval->compound = compound;
-            interval->originPc = {bb, currentIndex, afterInstruction};
-            interval->finalPc = _determineFinalPc(bb, currentIndex, unaryMInPlace->result());
+            interval->originPc = {bb, inBlock, inst, afterInstruction};
+            interval->finalPc = _determineFinalPc(bb, inst, unaryMInPlace->result());
             _queue.push(compound);
         } else {
             assert(!"Unexpected IR instruction");
         }
-
-        currentIndex++;
     }
 }
 
-ProgramCounter AllocateRegistersImpl::_determineFinalPc(BasicBlock *bb, int originIndex, Value *v) {
-    int finalIndex = -1;
+ProgramCounter AllocateRegistersImpl::_determineFinalPc(BasicBlock *bb,
+        Instruction *origin, Value *v) {
+    Instruction *finalInst = nullptr;
+    size_t finalIndex;
     for (auto use : v->uses()) {
         if (!use->instruction()) // Currently, instruction() only return null for phis.
-            return {bb, INT_MAX, beforeInstruction};
-        auto useIndex = _indexMap.at(use->instruction());
-        if (useIndex > finalIndex)
+            return {bb, afterBlock, nullptr, beforeInstruction};
+        auto useInst = use->instruction();
+        auto useIndex = bb->indexOfInstruction(useInst);
+        if (!finalInst || useIndex > finalIndex) {
+            finalInst = useInst;
             finalIndex = useIndex;
+        }
     }
-    if(finalIndex > 0)
-        return {bb, finalIndex, beforeInstruction};
-    return {bb, originIndex, afterInstruction};
+    if(finalInst)
+        return {bb, inBlock, finalInst, beforeInstruction};
+    return {bb, inBlock, origin, afterInstruction};
 }
 
 // This is called *after* the actual allocation is done. It "implements" the allocation by
@@ -245,10 +248,9 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
     // Find all intervals that originate from phis.
     _allocated.for_overlaps([&] (LiveInterval *interval) {
-        assert(!interval->originPc.instructionIndex);
         std::cout << "    Phi node " << interval->associatedValue << " is live" << std::endl;
         liveMap.insert({interval->associatedValue, interval});
-    }, {bb, 0, afterInstruction});
+    }, {bb, beforeBlock, nullptr, afterInstruction});
 
     for (auto phi : bb->phis()) {
         auto modeM = hierarchy_cast<ModeMPhiNode *>(phi);
@@ -257,19 +259,17 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
         modeM->modeRegister = interval->compound->allocatedRegister;
     }
 
-    int currentIndex = 1;
     for (auto it = bb->instructions().begin(); it != bb->instructions().end(); ++it) {
-        std::cout << "    Fixing instruction " << currentIndex << ", kind "
+        std::cout << "    Fixing instruction " << *it << ", kind "
                 << (*it)->kind << std::endl;
-        assert(_indexMap.at(*it) == currentIndex);
 
         // Find all intervals that originate from the current PC.
         _allocated.for_overlaps([&] (LiveInterval *interval) {
-            if (interval->originPc.instructionIndex != currentIndex)
+            if (interval->originPc.instruction != *it)
                 return;
             std::cout << "        Instruction returns " << interval->associatedValue << std::endl;
             resultMap.insert({interval->associatedValue, interval});
-        }, {bb, currentIndex, afterInstruction});
+        }, {bb, inBlock, *it, afterInstruction});
 
         // Emit code before the current instruction.
         if (auto movMC = hierarchy_cast<MovMCInstruction *>(*it); movMC) {
@@ -297,13 +297,14 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
         // Erase all intervals that end before the current instruction.
         // TODO: In principle, the loops to erase intervals can be accelerated by maintaining
         //       a tree of intervals, ordered by their finalPc. For now, we just use a linear scan.
-        for (auto it = liveMap.begin(); it != liveMap.end(); ) {
-            auto finalPc = it->second->finalPc;
-            if (finalPc == ProgramCounter{bb, currentIndex, beforeInstruction}) {
-                it = liveMap.erase(it);
+        for (auto liveIt = liveMap.begin(); liveIt != liveMap.end(); ) {
+            auto finalPc = liveIt->second->finalPc;
+            if (finalPc == ProgramCounter{bb, inBlock, *it, beforeInstruction}) {
+                liveIt = liveMap.erase(liveIt);
             }else{
-                assert(finalPc.instructionIndex > currentIndex);
-                ++it;
+                assert(finalPc.block == bb);
+                assert(!(finalPc <= ProgramCounter{bb, inBlock, *it, afterInstruction}));
+                ++liveIt;
             }
         }
 
@@ -312,18 +313,16 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
         assert(resultMap.empty());
 
         // Erase all intervals that end after the current instruction.
-        for (auto it = liveMap.begin(); it != liveMap.end(); ) {
-            auto finalPc = it->second->finalPc;
-            if (finalPc == ProgramCounter{bb, currentIndex, afterInstruction}) {
-                it = liveMap.erase(it);
+        for (auto liveIt = liveMap.begin(); liveIt != liveMap.end(); ) {
+            auto finalPc = liveIt->second->finalPc;
+            if (finalPc == ProgramCounter{bb, inBlock, *it, afterInstruction}) {
+                liveIt = liveMap.erase(liveIt);
             }else{
                 assert(finalPc.block == bb);
-                assert(finalPc.instructionIndex > currentIndex);
-                ++it;
+                assert(!(finalPc <= ProgramCounter{bb, inBlock, *it, afterInstruction}));
+                ++liveIt;
             }
         }
-
-        currentIndex++;
     }
 
     // The following code emits moves to ensure that Values that are used in phis are in the
@@ -347,7 +346,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
     _allocated.for_overlaps([&] (LiveInterval *interval) {
         resultMap.insert({interval->associatedValue, interval});
-    }, {bb, INT_MAX, afterInstruction});
+    }, {bb, afterBlock, nullptr, afterInstruction});
 
     // Determine the head of each move chain.
     struct MoveChain {
