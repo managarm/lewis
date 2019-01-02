@@ -168,6 +168,7 @@ struct Instruction {
     const InstructionKindType kind;
 
 private:
+    BasicBlock *_bb = nullptr;
     frg::rbtree_hook _instTreeHook;
 };
 
@@ -441,10 +442,14 @@ struct BasicBlock {
     }
 
     void doInsertInstruction(std::unique_ptr<Instruction> inst) {
+        assert(!inst->_bb);
+        inst->_bb = this;
         _insts.insert(nullptr, inst.release());
     }
 
     void doInsertInstruction(InstructionIterator before, std::unique_ptr<Instruction> inst) {
+        assert(!inst->_bb);
+        inst->_bb = this;
         _insts.insert(before._inst, inst.release());
     }
 
@@ -462,9 +467,15 @@ struct BasicBlock {
         return ptr;
     }
 
-    InstructionIterator replaceInstruction(InstructionIterator from, std::unique_ptr<Instruction> to) {
+    InstructionIterator replaceInstruction(InstructionIterator from,
+            std::unique_ptr<Instruction> to) {
+        assert(from._inst);
+        assert(from._inst->_bb == this);
+        assert(!to->_bb);
         auto ptr = to.get();
+        to->_bb = this;
         _insts.insert(from._inst, to.release());
+        from._inst->_bb = nullptr;
         _insts.remove(from._inst);
         return InstructionIterator{ptr};
     }
