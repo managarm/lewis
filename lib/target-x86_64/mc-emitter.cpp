@@ -78,6 +78,12 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, util::ByteEncoder &text) {
         } else if (auto negM = hierarchy_cast<NegMInstruction *>(inst); negM) {
             encode8(text, 0xF7);
             encodeMode(text, negM->result(), 3);
+        } else if (auto addMR = hierarchy_cast<AddMRInstruction *>(inst); addMR) {
+            encode8(text, 0x01);
+            encodeMode(text, addMR->result(), addMR->secondary.get());
+        } else if (auto andMR = hierarchy_cast<AndMRInstruction *>(inst); andMR) {
+            encode8(text, 0x21);
+            encodeMode(text, andMR->result(), andMR->secondary.get());
         } else {
             assert(!"Unexpected x86_64 IR instruction");
         }

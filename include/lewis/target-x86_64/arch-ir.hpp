@@ -26,6 +26,8 @@ namespace arch_instruction_kinds {
         movMC,
         movMR,
         negM,
+        addMR,
+        andMR,
     };
 }
 
@@ -91,6 +93,18 @@ struct UnaryMInPlaceInstruction
     ValueUse primary;
 };
 
+struct BinaryMRInPlaceInstruction
+: Instruction, WithModeMResult, CastableIfInstructionKind<BinaryMRInPlaceInstruction,
+        arch_instruction_kinds::addMR,
+        arch_instruction_kinds::andMR> {
+    BinaryMRInPlaceInstruction(InstructionKindType kind,
+            Value *primary_ = nullptr, Value *secondary_ = nullptr)
+    : Instruction{kind}, primary{this, primary_}, secondary{this, secondary_} { }
+
+    ValueUse primary;
+    ValueUse secondary;
+};
+
 // TODO: Turn this into a UnaryMOverwriteInstruction.
 struct MovMCInstruction
 : Instruction, WithModeMResult,
@@ -137,6 +151,20 @@ struct NegMInstruction
         CastableIfInstructionKind<NegMInstruction, arch_instruction_kinds::negM> {
     NegMInstruction(Value *primary_ = nullptr)
     : UnaryMInPlaceInstruction{arch_instruction_kinds::negM, primary_} { }
+};
+
+struct AddMRInstruction
+: BinaryMRInPlaceInstruction,
+        CastableIfInstructionKind<AddMRInstruction, arch_instruction_kinds::addMR> {
+    AddMRInstruction(Value *primary_ = nullptr, Value *secondary_ = nullptr)
+    : BinaryMRInPlaceInstruction{arch_instruction_kinds::addMR, primary_, secondary_} { }
+};
+
+struct AndMRInstruction
+: BinaryMRInPlaceInstruction,
+        CastableIfInstructionKind<AndMRInstruction, arch_instruction_kinds::andMR> {
+    AndMRInstruction(Value *primary_ = nullptr, Value *secondary_ = nullptr)
+    : BinaryMRInPlaceInstruction{arch_instruction_kinds::andMR, primary_, secondary_} { }
 };
 
 struct RetBranch

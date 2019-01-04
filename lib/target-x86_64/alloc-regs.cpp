@@ -214,6 +214,16 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             interval->originPc = {bb, inBlock, inst, afterInstruction};
             interval->finalPc = _determineFinalPc(bb, inst, unaryMInPlace->result());
             _queue.push(compound);
+        } else if (auto binaryMRInPlace = hierarchy_cast<BinaryMRInPlaceInstruction *>(inst);
+                binaryMRInPlace) {
+            auto compound = new LiveCompound;
+            auto interval = new LiveInterval;
+            compound->intervals.push_back(interval);
+            interval->associatedValue = binaryMRInPlace->result();
+            interval->compound = compound;
+            interval->originPc = {bb, inBlock, inst, afterInstruction};
+            interval->finalPc = _determineFinalPc(bb, inst, binaryMRInPlace->result());
+            _queue.push(compound);
         } else {
             assert(!"Unexpected IR instruction");
         }
@@ -290,6 +300,20 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 bb->insertInstruction(it, std::move(move));
             }
             unaryMInPlace->result()->modeRegister = resultCompound->allocatedRegister;
+        } else if (auto binaryMRInPlace = hierarchy_cast<BinaryMRInPlaceInstruction *>(*it);
+                binaryMRInPlace) {
+            assert(binaryMRInPlace->primary);
+            auto resultInterval = resultMap.at(binaryMRInPlace->result());
+            auto primaryInterval = liveMap.at(binaryMRInPlace->primary.get());
+            auto resultCompound = resultInterval->compound;
+            auto primaryCompound = primaryInterval->compound;
+            if(resultCompound->allocatedRegister != primaryCompound->allocatedRegister) {
+                auto move = std::make_unique<MovMRInstruction>(binaryMRInPlace->primary.get());
+                move->result()->modeRegister = resultCompound->allocatedRegister;
+                binaryMRInPlace->primary = move->result();
+                bb->insertInstruction(it, std::move(move));
+            }
+            binaryMRInPlace->result()->modeRegister = resultCompound->allocatedRegister;
         } else {
             assert(!"Unexpected IR instruction");
         }

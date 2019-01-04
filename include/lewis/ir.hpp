@@ -153,6 +153,7 @@ namespace instruction_kinds {
         null,
         loadConst,
         unaryMath,
+        binaryMath,
 
         // Give each architecture 16k instructions; that should be enough.
         kindsForX86 = 1 << 14
@@ -649,6 +650,25 @@ struct UnaryMathInstruction
 
     UnaryMathOpcode opcode;
     ValueUse operand;
+};
+
+enum class BinaryMathOpcode {
+    null,
+    add,
+    bitwiseAnd
+};
+
+struct BinaryMathInstruction
+: Instruction, WithGenericResult,
+        CastableIfInstructionKind<BinaryMathInstruction, instruction_kinds::binaryMath> {
+    BinaryMathInstruction(BinaryMathOpcode opcode_ = BinaryMathOpcode::null,
+            Value *left_ = nullptr, Value *right_ = nullptr)
+    : Instruction{instruction_kinds::binaryMath}, opcode{opcode_},
+            left{this, left_}, right{this, right_} { }
+
+    BinaryMathOpcode opcode;
+    ValueUse left;
+    ValueUse right;
 };
 
 } // namespace lewis

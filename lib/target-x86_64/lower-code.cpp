@@ -34,10 +34,30 @@ void LowerCodeImpl::run() {
             loadConst->result()->replaceAllUses(lower->result());
             it = _bb->replaceInstruction(it, std::move(lower));
         } else if (auto unaryMath = hierarchy_cast<UnaryMathInstruction *>(*it); unaryMath) {
-            auto lower = std::make_unique<NegMInstruction>();
+            std::unique_ptr<UnaryMInPlaceInstruction> lower;
+            if (unaryMath->opcode == UnaryMathOpcode::negate) {
+                lower = std::make_unique<NegMInstruction>();
+            } else {
+                assert(!"Unexpected unary math opcode");
+            }
             lower->primary = unaryMath->operand.get();
             unaryMath->operand = nullptr;
             unaryMath->result()->replaceAllUses(lower->result());
+            it = _bb->replaceInstruction(it, std::move(lower));
+        } else if (auto binaryMath = hierarchy_cast<BinaryMathInstruction *>(*it); binaryMath) {
+            std::unique_ptr<BinaryMRInPlaceInstruction> lower;
+            if (binaryMath->opcode == BinaryMathOpcode::add) {
+                lower = std::make_unique<AddMRInstruction>();
+            }else if (binaryMath->opcode == BinaryMathOpcode::bitwiseAnd) {
+                lower = std::make_unique<AndMRInstruction>();
+            } else {
+                assert(!"Unexpected binary math opcode");
+            }
+            lower->primary = binaryMath->left.get();
+            lower->secondary = binaryMath->right.get();
+            binaryMath->left = nullptr;
+            binaryMath->right = nullptr;
+            binaryMath->result()->replaceAllUses(lower->result());
             it = _bb->replaceInstruction(it, std::move(lower));
         } else {
             assert(!"Unexpected generic IR instruction");
