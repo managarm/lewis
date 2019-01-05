@@ -54,6 +54,10 @@ void Object::doAddSymbol(std::unique_ptr<Symbol> symbol) {
     _symbols.push_back(std::move(symbol));
 }
 
+void Object::doAddRelocation(std::unique_ptr<Relocation> relocation) {
+    _relocations.push_back(std::move(relocation));
+}
+
 void Object::replaceFragment(Fragment *from, std::unique_ptr<Fragment> to) {
     assert((from->isSection() && to->isSection())
             || (!from->isSection() && !to->isSection()));

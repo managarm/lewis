@@ -18,7 +18,7 @@ struct MachineCodeEmitter {
     void run();
 
 private:
-    void _emitBlock(BasicBlock *bb, util::ByteEncoder &text);
+    void _emitBlock(BasicBlock *bb, elf::ByteSection *textSection);
 
     Function *_fn;
     elf::Object *_elf;

@@ -58,12 +58,13 @@ void MachineCodeEmitter::run() {
     symbol->name = symbolString;
     symbol->section = textSection;
 
-    util::ByteEncoder text{&textSection->buffer};
     for (auto bb : _fn->blocks())
-        _emitBlock(bb, text);
+        _emitBlock(bb, textSection);
 }
 
-void MachineCodeEmitter::_emitBlock(BasicBlock *bb, util::ByteEncoder &text) {
+void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSection) {
+    util::ByteEncoder text{&textSection->buffer};
+
     for (auto inst : bb->instructions()) {
         if (auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
             assert(movMC->result()->modeRegister >= 0);
@@ -85,8 +86,17 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, util::ByteEncoder &text) {
             encode8(text, 0x21);
             encodeMode(text, andMR->result(), andMR->secondary.get());
         }else if (auto call = hierarchy_cast<CallInstruction *>(inst); call) {
+            auto string = _elf->addString(std::make_unique<elf::String>(call->function));
+            auto symbol = _elf->addSymbol(std::make_unique<elf::Symbol>());
+            symbol->name = string;
+
+            auto relocation = _elf->addRelocation(std::make_unique<elf::Relocation>());
+            relocation->section = textSection;
+            relocation->offset = text.offset() + 1;
+            relocation->symbol = symbol;
+
             encode8(text, 0xE8);
-            encode32(text, 0); // TODO: Generate a relocation here.
+            encode32(text, 0); // Relocation points here.
         } else {
             assert(!"Unexpected x86_64 IR instruction");
         }

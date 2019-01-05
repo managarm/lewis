@@ -21,7 +21,8 @@ namespace fragment_kinds {
         // All Fragments are byteSection are considered Sections (see Fragment::isSection()).
         byteSection,
         stringTableSection,
-        symbolTableSection
+        symbolTableSection,
+        relocationSection
     };
 }
 
@@ -167,6 +168,22 @@ struct Symbol {
     String *name = nullptr;
     FragmentUse section;
     size_t value = 0;
+
+    std::optional<size_t> designatedIndex;
+};
+
+struct RelocationSection : Fragment,
+        CastableIfFragmentKind<RelocationSection, fragment_kinds::relocationSection> {
+    RelocationSection()
+    : Fragment{fragment_kinds::relocationSection} { }
+};
+
+struct Relocation {
+    FragmentUse section;
+    ptrdiff_t offset = -1;
+    Symbol *symbol = nullptr;
+
+    std::optional<size_t> designatedIndex;
 };
 
 struct Object {
@@ -351,10 +368,66 @@ struct Object {
         return SymbolRange{this};
     }
 
+    // -------------------------------------------------------------------------------------
+    // Relocation management.
+    // -------------------------------------------------------------------------------------
+
+    struct RelocationIterator {
+    private:
+        using Base = std::vector<std::unique_ptr<Relocation>>::iterator;
+
+    public:
+        RelocationIterator(Base b)
+        : _b{b} { }
+
+        bool operator!= (const RelocationIterator &other) const {
+            return _b != other._b;
+        }
+
+        Relocation *operator* () const {
+            return _b->get();
+        }
+
+        void operator++ () {
+            ++_b;
+        }
+
+    private:
+        Base _b;
+    };
+
+    struct RelocationRange {
+        RelocationRange(Object *elf)
+        : _elf{elf} { }
+
+        RelocationIterator begin() {
+            return RelocationIterator{_elf->_relocations.begin()};
+        }
+        RelocationIterator end() {
+            return RelocationIterator{_elf->_relocations.end()};
+        }
+
+    private:
+        Object *_elf;
+    };
+
+    void doAddRelocation(std::unique_ptr<Relocation> relocation);
+
+    Relocation *addRelocation(std::unique_ptr<Relocation> relocation) {
+        auto ptr = relocation.get();
+        doAddRelocation(std::move(relocation));
+        return ptr;
+    }
+
+    RelocationRange relocations() {
+        return RelocationRange{this};
+    }
+
 private:
     std::vector<std::unique_ptr<Fragment>> _fragments;
     std::vector<std::unique_ptr<String>> _strings;
     std::vector<std::unique_ptr<Symbol>> _symbols;
+    std::vector<std::unique_ptr<Relocation>> _relocations;
     size_t _numSections = 0;
 };
 

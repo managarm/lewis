@@ -37,12 +37,19 @@ void LayoutPassImpl::run() {
                 size += string->buffer.size() + 1;
             }
         } else if (auto symtab = hierarchy_cast<SymbolTableSection *>(fragment); symtab) {
-            size_t numEntries = 1; // ELF uses index zero for non-existent strings.
+            size_t numEntries = 1; // ELF uses index zero for non-existent symbols.
             for (auto symbol : _elf->symbols()) {
-                // TODO: Set a designatedIndex of the Symbol.
+                symbol->designatedIndex = numEntries;
                 numEntries++;
             }
             size = sizeof(Elf64_Sym) * numEntries;
+        } else if (auto rel = hierarchy_cast<RelocationSection *>(fragment); rel) {
+            size_t numEntries = 0;
+            for (auto relocation : _elf->relocations()) {
+                relocation->designatedIndex = numEntries;
+                numEntries++;
+            }
+            size = sizeof(Elf64_Rela) * numEntries;
         } else {
             auto section = hierarchy_cast<ByteSection *>(fragment);
             assert(section && "Unexpected ELF fragment");

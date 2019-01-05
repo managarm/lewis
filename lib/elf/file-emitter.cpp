@@ -21,6 +21,7 @@ private:
     void _emitShdrs(ShdrsFragment *shdrs);
     void _emitStringTable(StringTableSection *strtab);
     void _emitSymbolTable(SymbolTableSection *symtab);
+    void _emitRela(RelocationSection *rel);
 
     Object *_elf;
 };
@@ -68,6 +69,8 @@ void FileEmitterImpl::run() {
             _emitStringTable(strtab);
         } else if (auto symtab = hierarchy_cast<SymbolTableSection *>(fragment); symtab) {
             _emitSymbolTable(symtab);
+        } else if (auto rel = hierarchy_cast<RelocationSection *>(fragment); rel) {
+            _emitRela(rel);
         } else {
             auto section = hierarchy_cast<ByteSection *>(fragment);
             assert(section && "Unexpected Fragment for FileEmitter");
@@ -184,6 +187,31 @@ void FileEmitterImpl::_emitSymbolTable(SymbolTableSection *symtab) {
         encodeHalf(section, sectionIndex); // st_shndx
         encodeAddr(section, symbol->value); // st_value
         encodeXword(section, 0); // st_size
+    }
+}
+
+void FileEmitterImpl::_emitRela(RelocationSection *rel) {
+    util::ByteEncoder section{&buffer};
+
+    for (auto relocation : _elf->relocations()) {
+        assert(relocation->offset > 0);
+
+        // TODO: Use virtualAddress instead of fileOffset.
+        assert(relocation->section && "Section layout must be fixed for FileEmitter");
+        assert(relocation->section->fileOffset.has_value()
+                && "Section layout must be fixed for FileEmitter");
+        size_t sectionAddress = relocation->section->fileOffset.value();
+
+        size_t symbolIndex = 0;
+        if (relocation->symbol) {
+            assert(relocation->symbol->designatedIndex.has_value()
+                    && "Symbol table layout must be fixed for FileEmitter");
+            symbolIndex = relocation->symbol->designatedIndex.value();
+        }
+
+        encodeAddr(section, sectionAddress + relocation->offset);
+        encodeXword(section, (symbolIndex << 32) | R_X86_64_JUMP_SLOT);
+        encodeSxword(section, 0);
     }
 }
 

@@ -28,7 +28,7 @@ void CreateHeadersPassImpl::run() {
     strtab->type = SHT_STRTAB;
     strtab->flags = SHF_ALLOC;
     _elf->stringTableFragment = strtab;
-    
+
     auto symtab = _elf->insertFragment(std::make_unique<SymbolTableSection>());
     symtab->type = SHT_SYMTAB;
     symtab->flags = SHF_ALLOC;
@@ -36,6 +36,13 @@ void CreateHeadersPassImpl::run() {
     symtab->sectionInfo = 1;
     symtab->entrySize = sizeof(Elf64_Sym);
     _elf->symbolTableFragment = symtab;
+
+    auto pltrel = _elf->insertFragment(std::make_unique<RelocationSection>());
+    pltrel->type = SHT_RELA;
+    pltrel->flags = SHF_ALLOC;
+    pltrel->sectionLink = symtab;
+    //pltrel->sectionInfo = 1; // TODO: Index of the section the relocations apply to.
+    pltrel->entrySize = sizeof(Elf64_Rela);
 }
 
 std::unique_ptr<CreateHeadersPass> CreateHeadersPass::create(Object *elf) {

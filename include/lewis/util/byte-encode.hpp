@@ -20,6 +20,10 @@ private:
     }
 
 public:
+    size_t offset() {
+        return _out->size();
+    }
+
     friend void encodeChars(ByteEncoder &e, const char *v) {
         while (*v)
             e._poke<uint8_t>(*(v++));
