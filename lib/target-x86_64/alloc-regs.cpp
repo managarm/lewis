@@ -224,6 +224,7 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             interval->originPc = {bb, inBlock, inst, afterInstruction};
             interval->finalPc = _determineFinalPc(bb, inst, binaryMRInPlace->result());
             _queue.push(compound);
+        } else if (auto call = hierarchy_cast<CallInstruction *>(inst); call) {
         } else {
             assert(!"Unexpected IR instruction");
         }
@@ -314,6 +315,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 bb->insertInstruction(it, std::move(move));
             }
             binaryMRInPlace->result()->modeRegister = resultCompound->allocatedRegister;
+        } else if (auto call = hierarchy_cast<CallInstruction *>(*it); call) {
         } else {
             assert(!"Unexpected IR instruction");
         }

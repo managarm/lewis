@@ -4,9 +4,10 @@
 #pragma once
 
 #include <array>
-#include <cassert>
 #include <algorithm>
+#include <cassert>
 #include <memory>
+#include <string>
 #include <vector>
 #include <frg/list.hpp>
 #include <frg/rbtree.hpp>
@@ -154,6 +155,7 @@ namespace instruction_kinds {
         loadConst,
         unaryMath,
         binaryMath,
+        invoke,
 
         // Give each architecture 16k instructions; that should be enough.
         kindsForX86 = 1 << 14
@@ -669,6 +671,17 @@ struct BinaryMathInstruction
     BinaryMathOpcode opcode;
     ValueUse left;
     ValueUse right;
+};
+
+struct InvokeInstruction
+: Instruction, WithGenericResult,
+        CastableIfInstructionKind<InvokeInstruction, instruction_kinds::invoke> {
+    InvokeInstruction(std::string function, Value *operand_ = nullptr)
+    : Instruction{instruction_kinds::invoke}, function{std::move(function)},
+            operand{this, operand_} { }
+
+    std::string function;
+    ValueUse operand;
 };
 
 } // namespace lewis

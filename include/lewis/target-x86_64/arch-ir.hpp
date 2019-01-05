@@ -28,6 +28,7 @@ namespace arch_instruction_kinds {
         negM,
         addMR,
         andMR,
+        call,
     };
 }
 
@@ -165,6 +166,15 @@ struct AndMRInstruction
         CastableIfInstructionKind<AndMRInstruction, arch_instruction_kinds::andMR> {
     AndMRInstruction(Value *primary_ = nullptr, Value *secondary_ = nullptr)
     : BinaryMRInPlaceInstruction{arch_instruction_kinds::andMR, primary_, secondary_} { }
+};
+
+struct CallInstruction
+: Instruction, WithModeMResult,
+        CastableIfInstructionKind<CallInstruction, arch_instruction_kinds::call> {
+    CallInstruction()
+    : Instruction{arch_instruction_kinds::call} { }
+
+    std::string function;
 };
 
 struct RetBranch

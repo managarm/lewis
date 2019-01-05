@@ -59,6 +59,12 @@ void LowerCodeImpl::run() {
             binaryMath->right = nullptr;
             binaryMath->result()->replaceAllUses(lower->result());
             it = _bb->replaceInstruction(it, std::move(lower));
+        } else if (auto invoke = hierarchy_cast<InvokeInstruction *>(*it); invoke) {
+            auto lower = std::make_unique<CallInstruction>();
+            lower->function = invoke->function;
+            invoke->operand = nullptr;
+            invoke->result()->replaceAllUses(lower->result());
+            it = _bb->replaceInstruction(it, std::move(lower));
         } else {
             assert(!"Unexpected generic IR instruction");
         }

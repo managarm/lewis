@@ -30,8 +30,8 @@ int main() {
     auto i4 = b1->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
             lewis::UnaryMathOpcode::negate, p1));
     (void)i4;
-    auto i5 = b1->insertInstruction(std::make_unique<lewis::BinaryMathInstruction>(
-            lewis::BinaryMathOpcode::bitwiseAnd, p0, p1));
+    auto i5 = b1->insertInstruction(std::make_unique<lewis::InvokeInstruction>(
+            "somethingExternal", p0));
     (void)i5;
     b1->setBranch(std::make_unique<lewis::FunctionReturnBranch>());
 
