@@ -97,7 +97,7 @@ public:
     uint32_t flags = 0;
     std::optional<size_t> designatedIndex;
     std::optional<uintptr_t> fileOffset;
-    std::optional<uintptr_t> virtualAdress;
+    std::optional<uintptr_t> virtualAddress;
     std::optional<uintptr_t> computedSize;
     FragmentUse sectionLink;
     std::optional<size_t> sectionInfo;

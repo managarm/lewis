@@ -89,10 +89,9 @@ void FileEmitterImpl::_emitPhdrs(PhdrsFragment *phdrs) {
         // TODO: p_type and p_flags are only fillers.
         encodeWord(section, PT_LOAD); // p_type
         encodeWord(section, PF_R | PF_X); // p_flags
-        // TODO: p_offset and p_vaddr need not match.
         encodeOff(section, fragment->fileOffset.value()); // p_offset
-        encodeAddr(section, fragment->fileOffset.value()); // p_vaddr
-        encodeAddr(section, 0); // p_paddr
+        encodeAddr(section, fragment->virtualAddress.value()); // p_vaddr
+        encodeAddr(section, fragment->virtualAddress.value()); // p_paddr
         // TODO: p_filesz and p_memsz need not match.
         encodeXword(section, fragment->computedSize.value()); // p_filesz
         encodeXword(section, fragment->computedSize.value()); // p_memsz
@@ -103,8 +102,8 @@ void FileEmitterImpl::_emitPhdrs(PhdrsFragment *phdrs) {
     encodeWord(section, PT_DYNAMIC); // p_type
     encodeWord(section, PF_R); // p_flags
     encodeOff(section, _elf->dynamicFragment->fileOffset.value()); // p_offset
-    encodeAddr(section, _elf->dynamicFragment->fileOffset.value()); // p_vaddr
-    encodeAddr(section, 0); // p_paddr
+    encodeAddr(section, _elf->dynamicFragment->virtualAddress.value()); // p_vaddr
+    encodeAddr(section, _elf->dynamicFragment->virtualAddress.value()); // p_paddr
     encodeXword(section, _elf->dynamicFragment->computedSize.value()); // p_filesz
     encodeXword(section, _elf->dynamicFragment->computedSize.value()); // p_memsz
     encodeXword(section, 0); // p_align
@@ -147,7 +146,7 @@ void FileEmitterImpl::_emitShdrs(ShdrsFragment *shdrs) {
         encodeWord(section, nameIndex); // sh_name
         encodeWord(section, fragment->type); // sh_type
         encodeXword(section, fragment->flags); // sh_flags
-        encodeAddr(section, fragment->fileOffset.value()); // sh_addr
+        encodeAddr(section, fragment->virtualAddress.value()); // sh_addr
         encodeOff(section, fragment->fileOffset.value()); // sh_offset
         encodeXword(section, fragment->computedSize.value()); // sh_size
         encodeWord(section, linkIndex); // sh_link
@@ -160,13 +159,12 @@ void FileEmitterImpl::_emitShdrs(ShdrsFragment *shdrs) {
 void FileEmitterImpl::_emitDynamic(DynamicSection *dynamic) {
     util::ByteEncoder section{&buffer};
 
-    // TODO: Use virtualAddress here instead of fileOffset.
     encodeSxword(section, DT_STRTAB);
-    encodeXword(section, _elf->stringTableFragment->fileOffset.value());
+    encodeXword(section, _elf->stringTableFragment->virtualAddress.value());
     encodeSxword(section, DT_SYMTAB);
-    encodeXword(section, _elf->symbolTableFragment->fileOffset.value());
+    encodeXword(section, _elf->symbolTableFragment->virtualAddress.value());
     encodeSxword(section, DT_JMPREL);
-    encodeXword(section, _elf->pltRelocationFragment->fileOffset.value());
+    encodeXword(section, _elf->pltRelocationFragment->virtualAddress.value());
     encodeSxword(section, DT_NULL);
     encodeXword(section, 0);
 }
@@ -223,11 +221,10 @@ void FileEmitterImpl::_emitRela(RelocationSection *rel) {
     for (auto relocation : _elf->relocations()) {
         assert(relocation->offset > 0);
 
-        // TODO: Use virtualAddress instead of fileOffset.
         assert(relocation->section && "Section layout must be fixed for FileEmitter");
-        assert(relocation->section->fileOffset.has_value()
+        assert(relocation->section->virtualAddress.has_value()
                 && "Section layout must be fixed for FileEmitter");
-        size_t sectionAddress = relocation->section->fileOffset.value();
+        size_t sectionAddress = relocation->section->virtualAddress.value();
 
         size_t symbolIndex = 0;
         if (relocation->symbol) {

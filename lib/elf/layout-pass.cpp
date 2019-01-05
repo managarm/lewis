@@ -22,6 +22,7 @@ private:
 void LayoutPassImpl::run() {
     size_t sectionIndex = 1;
     size_t offset = 64; // Size of EHDR.
+    size_t address = 0x1000;
     std::cout << "Running LayoutPass" << std::endl;
     for (auto fragment : _elf->fragments()) {
         size_t size;
@@ -63,7 +64,14 @@ void LayoutPassImpl::run() {
         if (fragment->isSection())
             fragment->designatedIndex = sectionIndex++;
 
+        // TODO: Perform virtualAddress allocation per segment and not per section.
+        // Make sure each segment starts on it's own page.
+        address = (address + 0xFFF) & ~size_t{0xFFF};
+        // Make sure virtualAddress and fileOffset match modulo page size.
+        address += offset & 0xFFF;
+
         fragment->fileOffset = offset;
+        fragment->virtualAddress = address;
         fragment->computedSize = size;
         offset += size;
     }
