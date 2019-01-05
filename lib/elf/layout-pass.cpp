@@ -27,9 +27,11 @@ void LayoutPassImpl::run() {
         size_t size;
         if (auto phdrs = hierarchy_cast<PhdrsFragment *>(fragment); phdrs) {
             // TODO: # of PHDRs should be independent of # of sections.
-            size = _elf->numberOfFragments() * sizeof(Elf64_Phdr);
+            size = (_elf->numberOfFragments() + 1) * sizeof(Elf64_Phdr);
         } else if (auto shdrs = hierarchy_cast<ShdrsFragment *>(fragment); shdrs) {
             size = (1 + _elf->numberOfSections()) * sizeof(Elf64_Shdr);
+        } else if (auto dynamic = hierarchy_cast<DynamicSection *>(fragment); dynamic) {
+            size = 4 * 16;
         } else if (auto strtab = hierarchy_cast<StringTableSection *>(fragment); strtab) {
             size = 1; // ELF uses index zero for non-existent strings.
             for (auto string : _elf->strings()) {

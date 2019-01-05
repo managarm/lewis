@@ -20,6 +20,7 @@ namespace fragment_kinds {
         shdrsFragment,
         // All Fragments are byteSection are considered Sections (see Fragment::isSection()).
         byteSection,
+        dynamicSection,
         stringTableSection,
         symbolTableSection,
         relocationSection
@@ -144,6 +145,12 @@ struct ByteSection : Fragment,
     std::vector<uint8_t> buffer;
 };
 
+struct DynamicSection : Fragment,
+        CastableIfFragmentKind<DynamicSection, fragment_kinds::dynamicSection> {
+    DynamicSection()
+    : Fragment{fragment_kinds::dynamicSection} { }
+};
+
 struct StringTableSection : Fragment,
         CastableIfFragmentKind<StringTableSection, fragment_kinds::stringTableSection> {
     StringTableSection()
@@ -255,8 +262,10 @@ struct Object {
 
     FragmentUse phdrsFragment;
     FragmentUse shdrsFragment;
+    FragmentUse dynamicFragment;
     FragmentUse stringTableFragment;
     FragmentUse symbolTableFragment;
+    FragmentUse pltRelocationFragment;
 
     // -------------------------------------------------------------------------------------
     // String management.

@@ -19,6 +19,7 @@ struct FileEmitterImpl : FileEmitter {
 private:
     void _emitPhdrs(PhdrsFragment *phdrs);
     void _emitShdrs(ShdrsFragment *shdrs);
+    void _emitDynamic(DynamicSection *dynamic);
     void _emitStringTable(StringTableSection *strtab);
     void _emitSymbolTable(SymbolTableSection *symtab);
     void _emitRela(RelocationSection *rel);
@@ -55,7 +56,7 @@ void FileEmitterImpl::run() {
     encodeHalf(ehdr, 64); // e_ehsize
     encodeHalf(ehdr, sizeof(Elf64_Phdr)); // e_phentsize
     // TODO: # of PHDRs should be independent of # of sections.
-    encodeHalf(ehdr, _elf->numberOfFragments()); // e_phnum
+    encodeHalf(ehdr, _elf->numberOfFragments() + 1); // e_phnum
     encodeHalf(ehdr, sizeof(Elf64_Shdr)); // e_shentsize
     encodeHalf(ehdr, 1 + _elf->numberOfSections()); // e_shnum
     encodeHalf(ehdr, _elf->stringTableFragment->designatedIndex.value()); // e_shstrndx
@@ -65,6 +66,8 @@ void FileEmitterImpl::run() {
             _emitPhdrs(phdrs);
         } else if (auto shdrs = hierarchy_cast<ShdrsFragment *>(fragment); shdrs) {
             _emitShdrs(shdrs);
+        } else if (auto dynamic = hierarchy_cast<DynamicSection *>(fragment); dynamic) {
+            _emitDynamic(dynamic);
         } else if (auto strtab = hierarchy_cast<StringTableSection *>(fragment); strtab) {
             _emitStringTable(strtab);
         } else if (auto symtab = hierarchy_cast<SymbolTableSection *>(fragment); symtab) {
@@ -95,6 +98,16 @@ void FileEmitterImpl::_emitPhdrs(PhdrsFragment *phdrs) {
         encodeXword(section, fragment->computedSize.value()); // p_memsz
         encodeXword(section, 0); // p_align
     }
+
+    // Emit the PT_DYNAMIC segment.
+    encodeWord(section, PT_DYNAMIC); // p_type
+    encodeWord(section, PF_R); // p_flags
+    encodeOff(section, _elf->dynamicFragment->fileOffset.value()); // p_offset
+    encodeAddr(section, _elf->dynamicFragment->fileOffset.value()); // p_vaddr
+    encodeAddr(section, 0); // p_paddr
+    encodeXword(section, _elf->dynamicFragment->computedSize.value()); // p_filesz
+    encodeXword(section, _elf->dynamicFragment->computedSize.value()); // p_memsz
+    encodeXword(section, 0); // p_align
 }
 
 void FileEmitterImpl::_emitShdrs(ShdrsFragment *shdrs) {
@@ -142,6 +155,20 @@ void FileEmitterImpl::_emitShdrs(ShdrsFragment *shdrs) {
         encodeXword(section, 0); // sh_addralign
         encodeXword(section, fragment->entrySize.value_or(0)); // sh_entsize
     }
+}
+
+void FileEmitterImpl::_emitDynamic(DynamicSection *dynamic) {
+    util::ByteEncoder section{&buffer};
+
+    // TODO: Use virtualAddress here instead of fileOffset.
+    encodeSxword(section, DT_STRTAB);
+    encodeXword(section, _elf->stringTableFragment->fileOffset.value());
+    encodeSxword(section, DT_SYMTAB);
+    encodeXword(section, _elf->symbolTableFragment->fileOffset.value());
+    encodeSxword(section, DT_JMPREL);
+    encodeXword(section, _elf->pltRelocationFragment->fileOffset.value());
+    encodeSxword(section, DT_NULL);
+    encodeXword(section, 0);
 }
 
 void FileEmitterImpl::_emitStringTable(StringTableSection *strtab) {

@@ -18,11 +18,19 @@ private:
 };
 
 void CreateHeadersPassImpl::run() {
+    auto dynamicString = _elf->addString(std::make_unique<String>(".dynamic"));
+
     auto phdrs = _elf->insertFragment(std::make_unique<PhdrsFragment>());
     _elf->phdrsFragment = phdrs;
 
     auto shdrs = _elf->insertFragment(std::make_unique<ShdrsFragment>());
     _elf->shdrsFragment = shdrs;
+
+    auto dynamic = _elf->insertFragment(std::make_unique<DynamicSection>());
+    dynamic->name = dynamicString;
+    dynamic->type = SHT_DYNAMIC;
+    dynamic->flags = SHF_ALLOC;
+    _elf->dynamicFragment = dynamic;
 
     auto strtab = _elf->insertFragment(std::make_unique<StringTableSection>());
     strtab->type = SHT_STRTAB;
@@ -43,6 +51,7 @@ void CreateHeadersPassImpl::run() {
     pltrel->sectionLink = symtab;
     //pltrel->sectionInfo = 1; // TODO: Index of the section the relocations apply to.
     pltrel->entrySize = sizeof(Elf64_Rela);
+    _elf->pltRelocationFragment = pltrel;
 }
 
 std::unique_ptr<CreateHeadersPass> CreateHeadersPass::create(Object *elf) {
