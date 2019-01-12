@@ -22,6 +22,7 @@ namespace arch_instruction_kinds {
     // C: Immediate constant.
     enum : InstructionKindType {
         unused = instruction_kinds::kindsForX86,
+        pseudoMovMR,
         xchgMR,
         movMC,
         movMR,
@@ -77,7 +78,9 @@ private:
 // Instruction that takes a single operand and overwrites a mode M result.
 struct UnaryMOverwriteInstruction
 : Instruction, WithModeMResult,
-        CastableIfInstructionKind<UnaryMOverwriteInstruction, arch_instruction_kinds::movMR> {
+        CastableIfInstructionKind<UnaryMOverwriteInstruction,
+                arch_instruction_kinds::pseudoMovMR,
+                arch_instruction_kinds::movMR> {
     UnaryMOverwriteInstruction(InstructionKindType kind, Value *operand_ = nullptr)
     : Instruction{kind}, operand{this, operand_} { }
 
@@ -104,6 +107,13 @@ struct BinaryMRInPlaceInstruction
 
     ValueUse primary;
     ValueUse secondary;
+};
+
+struct PseudoMovMRInstruction
+: UnaryMOverwriteInstruction,
+        CastableIfInstructionKind<PseudoMovMRInstruction, arch_instruction_kinds::pseudoMovMR> {
+    PseudoMovMRInstruction(Value *operand_ = nullptr)
+    : UnaryMOverwriteInstruction{arch_instruction_kinds::pseudoMovMR, operand_} { }
 };
 
 // TODO: Turn this into a UnaryMOverwriteInstruction.
