@@ -175,27 +175,43 @@ void AllocateRegistersImpl::run() {
 void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
     // Generate LiveIntervals for phis.
     for (auto phi : bb->phis()) {
-        auto compound = new LiveCompound;
-        compound->possibleRegisters = 0xF;
+        if (auto modeRArgument = hierarchy_cast<ModeRArgumentPhi *>(phi); modeRArgument) {
+            auto compound = new LiveCompound;
+            compound->possibleRegisters = 0x80;
 
-        auto nodeInterval = new LiveInterval;
-        compound->intervals.push_back(nodeInterval);
-        nodeInterval->associatedValue = phi;
-        nodeInterval->compound = compound;
-        nodeInterval->originPc = {bb, beforeBlock, nullptr, afterInstruction};
-        nodeInterval->finalPc = _determineFinalPc(bb, 0, phi);
+            auto nodeInterval = new LiveInterval;
+            compound->intervals.push_back(nodeInterval);
+            nodeInterval->associatedValue = phi;
+            nodeInterval->compound = compound;
+            nodeInterval->originPc = {bb, beforeBlock, nullptr, afterInstruction};
+            nodeInterval->finalPc = _determineFinalPc(bb, 0, phi);
 
-        for (auto edge : phi->edges()) {
-            auto aliasInterval = new LiveInterval;
-            assert(edge->alias);
-            compound->intervals.push_back(aliasInterval);
-            aliasInterval->associatedValue = edge->alias.get();
-            aliasInterval->compound = compound;
-            aliasInterval->originPc = {edge->source, afterBlock, nullptr, afterInstruction};
-            aliasInterval->finalPc = {edge->source, afterBlock, nullptr, afterInstruction};
+            _queue.push(compound);
+        } else if (auto modeMDataFlow = hierarchy_cast<ModeMDataFlowPhi *>(phi); modeMDataFlow) {
+            auto compound = new LiveCompound;
+            compound->possibleRegisters = 0xF;
+
+            auto nodeInterval = new LiveInterval;
+            compound->intervals.push_back(nodeInterval);
+            nodeInterval->associatedValue = phi;
+            nodeInterval->compound = compound;
+            nodeInterval->originPc = {bb, beforeBlock, nullptr, afterInstruction};
+            nodeInterval->finalPc = _determineFinalPc(bb, 0, phi);
+
+            for (auto edge : phi->edges()) {
+                auto aliasInterval = new LiveInterval;
+                assert(edge->alias);
+                compound->intervals.push_back(aliasInterval);
+                aliasInterval->associatedValue = edge->alias.get();
+                aliasInterval->compound = compound;
+                aliasInterval->originPc = {edge->source, afterBlock, nullptr, afterInstruction};
+                aliasInterval->finalPc = {edge->source, afterBlock, nullptr, afterInstruction};
+            }
+
+            _queue.push(compound);
+        } else {
+            assert(!"Unexpected IR phi");
         }
-
-        _queue.push(compound);
     }
 
     // Generate LiveIntervals for instructions.
@@ -325,10 +341,13 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
     }, {bb, beforeBlock, nullptr, afterInstruction});
 
     for (auto phi : bb->phis()) {
-        auto modeM = hierarchy_cast<ModeMPhiNode *>(phi);
-        assert(modeM);
-        auto interval = liveMap.at(phi);
-        modeM->modeRegister = interval->compound->allocatedRegister;
+        if (auto modeRArgument = hierarchy_cast<ModeRArgumentPhi *>(phi); modeRArgument) {
+            auto interval = liveMap.at(phi);
+            modeRArgument->modeRegister = interval->compound->allocatedRegister;
+        } else if (auto modeMDataFlow = hierarchy_cast<ModeMDataFlowPhi *>(phi); modeMDataFlow) {
+            auto interval = liveMap.at(phi);
+            modeMDataFlow->modeRegister = interval->compound->allocatedRegister;
+        }
     }
 
     for (auto it = bb->instructions().begin(); it != bb->instructions().end(); ++it) {
@@ -380,7 +399,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             auto finalPc = liveIt->second->finalPc;
             if (finalPc == ProgramCounter{bb, inBlock, *it, beforeInstruction}) {
                 liveIt = liveMap.erase(liveIt);
-            }else{
+            } else {
                 assert(finalPc.block == bb);
                 assert(!(finalPc <= ProgramCounter{bb, inBlock, *it, afterInstruction}));
                 ++liveIt;
@@ -396,7 +415,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             auto finalPc = liveIt->second->finalPc;
             if (finalPc == ProgramCounter{bb, inBlock, *it, afterInstruction}) {
                 liveIt = liveMap.erase(liveIt);
-            }else{
+            } else {
                 assert(finalPc.block == bb);
                 assert(!(finalPc <= ProgramCounter{bb, inBlock, *it, afterInstruction}));
                 ++liveIt;

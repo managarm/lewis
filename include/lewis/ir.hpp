@@ -260,7 +260,8 @@ using PhiKindType = uint32_t;
 namespace phi_kinds {
     enum : PhiKindType {
         null,
-        generic,
+        argument,
+        dataFlow,
 
         // Give each architecture 16k values; that should be enough.
         kindsForX86 = 1 << 14
@@ -346,9 +347,14 @@ struct IsPhiKind {
 template<typename T, PhiKindType... S>
 struct CastableIfPhiKind : Castable<T, IsPhiKind<S...>> { };
 
-struct GenericPhiNode : PhiNode {
-    GenericPhiNode()
-    : PhiNode{phi_kinds::generic} { }
+struct ArgumentPhi : PhiNode, CastableIfPhiKind<ArgumentPhi, phi_kinds::argument> {
+    ArgumentPhi()
+    : PhiNode{phi_kinds::argument} { }
+};
+
+struct DataFlowPhi : PhiNode, CastableIfPhiKind<DataFlowPhi, phi_kinds::dataFlow> {
+    DataFlowPhi()
+    : PhiNode{phi_kinds::dataFlow} { }
 };
 
 struct BasicBlock {

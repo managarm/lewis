@@ -13,9 +13,13 @@ MachineCodeEmitter::MachineCodeEmitter(Function *fn, elf::Object *elf)
 
 int getRegister(Value *v) {
     if (auto phi = hierarchy_cast<PhiNode *>(v); phi) {
-        auto modeM = hierarchy_cast<ModeMPhiNode *>(phi);
-        assert(modeM);
-        return modeM->modeRegister;
+        if (auto modeRArgument = hierarchy_cast<ModeRArgumentPhi *>(phi)) {
+            return modeRArgument->modeRegister;
+        } else if (auto modeMDataFlow = hierarchy_cast<ModeMDataFlowPhi *>(phi)) {
+            return modeMDataFlow->modeRegister;
+        } else {
+            assert(!"Unexpected x86_64 IR phi");
+        }
     }
 
     if (auto modeMResult = hierarchy_cast<ModeMResult *>(v); modeMResult) {

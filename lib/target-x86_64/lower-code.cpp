@@ -20,11 +20,19 @@ private:
 
 void LowerCodeImpl::run() {
     for (auto it = _bb->phis().begin(); it != _bb->phis().end(); ++it) {
-        auto lower = std::make_unique<ModeMPhiNode>();
-        for(auto edge : (*it)->edges())
-            lower->attachEdge(std::make_unique<PhiEdge>(edge->source, edge->alias.get()));
-        (*it)->replaceAllUses(lower.get());
-        it = _bb->replacePhi(it, std::move(lower));
+        if (auto argument = hierarchy_cast<ArgumentPhi *>(*it); argument) {
+            auto lower = std::make_unique<ModeRArgumentPhi>();
+            (*it)->replaceAllUses(lower.get());
+            it = _bb->replacePhi(it, std::move(lower));
+        } else if (auto dataFlow = hierarchy_cast<DataFlowPhi *>(*it); dataFlow) {
+            auto lower = std::make_unique<ModeMDataFlowPhi>();
+            for(auto edge : (*it)->edges())
+                lower->attachEdge(std::make_unique<PhiEdge>(edge->source, edge->alias.get()));
+            (*it)->replaceAllUses(lower.get());
+            it = _bb->replacePhi(it, std::move(lower));
+        } else {
+            assert(!"Unexpected generic IR phi");
+        }
     }
 
     for (auto it = _bb->instructions().begin(); it != _bb->instructions().end(); ++it) {

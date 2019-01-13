@@ -36,7 +36,8 @@ namespace arch_instruction_kinds {
 namespace arch_phi_kinds {
     enum : PhiKindType {
         unused = phi_kinds::kindsForX86,
-        modeM
+        modeRArgument,
+        modeMDataFlow
     };
 }
 
@@ -57,11 +58,20 @@ struct ModeMResult
     int modeRegister = -1;
 };
 
-struct ModeMPhiNode
+struct ModeRArgumentPhi
 : PhiNode,
-        CastableIfPhiKind<ModeMPhiNode, arch_phi_kinds::modeM> {
-    ModeMPhiNode()
-    : PhiNode{arch_phi_kinds::modeM} { }
+        CastableIfPhiKind<ModeRArgumentPhi, arch_phi_kinds::modeRArgument> {
+    ModeRArgumentPhi()
+    : PhiNode{arch_phi_kinds::modeRArgument} { }
+
+    int modeRegister = -1;
+};
+
+struct ModeMDataFlowPhi
+: PhiNode,
+        CastableIfPhiKind<ModeMDataFlowPhi, arch_phi_kinds::modeMDataFlow> {
+    ModeMDataFlowPhi()
+    : PhiNode{arch_phi_kinds::modeMDataFlow} { }
 
     int modeRegister = -1;
 };
