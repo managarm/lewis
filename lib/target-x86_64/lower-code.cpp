@@ -62,6 +62,7 @@ void LowerCodeImpl::run() {
         } else if (auto invoke = hierarchy_cast<InvokeInstruction *>(*it); invoke) {
             auto lower = std::make_unique<CallInstruction>();
             lower->function = invoke->function;
+            lower->operand = invoke->operand.get();
             invoke->operand = nullptr;
             invoke->result()->replaceAllUses(lower->result());
             it = _bb->replaceInstruction(it, std::move(lower));

@@ -464,6 +464,10 @@ struct BasicBlock {
         return nit;
     }
 
+    InstructionIterator iteratorTo(Instruction *inst) {
+        return InstructionIterator{inst};
+    }
+
     InstructionRange instructions() {
         return InstructionRange{this};
     }

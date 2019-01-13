@@ -95,6 +95,8 @@ struct LiveCompound {
     > intervals;
 
     int allocatedRegister = -1;
+
+    uint64_t possibleRegisters = 0;
 };
 
 struct AllocateRegistersImpl : AllocateRegistersPass {
@@ -145,7 +147,9 @@ void AllocateRegistersImpl::run() {
         // Chose the first free register using the bitmask.
         // TODO: Currently, we just allocate to the first 4 registers: rax, rcx, rdx, rbx.
         //       Generalize this register model.
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 8; i++) {
+            if (!(compound->possibleRegisters & (1 << i)))
+                continue;
             if (registersBlocked & (1 << i))
                 continue;
             compound->allocatedRegister = i;
@@ -172,6 +176,7 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
     // Generate LiveIntervals for phis.
     for (auto phi : bb->phis()) {
         auto compound = new LiveCompound;
+        compound->possibleRegisters = 0xF;
 
         auto nodeInterval = new LiveInterval;
         compound->intervals.push_back(nodeInterval);
@@ -197,6 +202,8 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
     for (auto it = bb->instructions().begin(); it != bb->instructions().end(); ++it) {
         if (auto movMC = hierarchy_cast<MovMCInstruction *>(*it); movMC) {
             auto compound = new LiveCompound;
+            compound->possibleRegisters = 0xF;
+
             auto interval = new LiveInterval;
             compound->intervals.push_back(interval);
             interval->associatedValue = movMC->result();
@@ -211,6 +218,7 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             unaryMInPlace->primary = pseudoMove->result();
 
             auto compound = new LiveCompound;
+            compound->possibleRegisters = 0xF;
 
             auto copyInterval = new LiveInterval;
             compound->intervals.push_back(copyInterval);
@@ -234,6 +242,7 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             binaryMRInPlace->primary = pseudoMove->result();
 
             auto compound = new LiveCompound;
+            compound->possibleRegisters = 0xF;
 
             auto copyInterval = new LiveInterval;
             compound->intervals.push_back(copyInterval);
@@ -251,6 +260,32 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
 
             _queue.push(compound);
         } else if (auto call = hierarchy_cast<CallInstruction *>(*it); call) {
+            auto pseudoMove = bb->insertInstruction(it,
+                    std::make_unique<PseudoMovMRInstruction>(call->operand.get()));
+            call->operand = pseudoMove->result();
+
+            auto copyCompound = new LiveCompound;
+            copyCompound->possibleRegisters = 0x80;
+
+            auto copyInterval = new LiveInterval;
+            copyCompound->intervals.push_back(copyInterval);
+            copyInterval->associatedValue = pseudoMove->result();
+            copyInterval->compound = copyCompound;
+            copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
+            copyInterval->finalPc = ProgramCounter{bb, inBlock, *it, beforeInstruction};
+
+            auto resultCompound = new LiveCompound;
+            resultCompound->possibleRegisters = 0x1;
+
+            auto resultInterval = new LiveInterval;
+            resultCompound->intervals.push_back(resultInterval);
+            resultInterval->associatedValue = call->result();
+            resultInterval->compound = resultCompound;
+            resultInterval->originPc = {bb, inBlock, *it, afterInstruction};
+            resultInterval->finalPc = _determineFinalPc(bb, *it, call->result());
+
+            _queue.push(copyCompound);
+            _queue.push(resultCompound);
         } else {
             assert(!"Unexpected IR instruction");
         }

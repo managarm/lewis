@@ -25,13 +25,12 @@ int main() {
     auto p1 = b1->attachPhi(std::make_unique<lewis::GenericPhiNode>());
     p1->attachEdge(std::make_unique<lewis::PhiEdge>(b0, i0->result()));
     auto i3 = b1->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
-            lewis::UnaryMathOpcode::negate, p0));
-    (void)i3;
-    auto i4 = b1->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
             lewis::UnaryMathOpcode::negate, p1));
-    (void)i4;
-    auto i5 = b1->insertInstruction(std::make_unique<lewis::InvokeInstruction>(
+    (void)i3;
+    auto i4 = b1->insertInstruction(std::make_unique<lewis::InvokeInstruction>(
             "somethingExternal", p0));
+    auto i5 = b1->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
+            lewis::UnaryMathOpcode::negate, i4->result()));
     (void)i5;
     b1->setBranch(std::make_unique<lewis::FunctionReturnBranch>());
 

@@ -181,10 +181,11 @@ struct AndMRInstruction
 struct CallInstruction
 : Instruction, WithModeMResult,
         CastableIfInstructionKind<CallInstruction, arch_instruction_kinds::call> {
-    CallInstruction()
-    : Instruction{arch_instruction_kinds::call} { }
+    CallInstruction(Value *operand_ = nullptr)
+    : Instruction{arch_instruction_kinds::call}, operand{this, operand_} { }
 
     std::string function;
+    ValueUse operand;
 };
 
 struct RetBranch
