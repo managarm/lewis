@@ -107,7 +107,7 @@ struct AllocateRegistersImpl : AllocateRegistersPass {
 
 private:
     void _collectIntervals(BasicBlock *bb);
-    ProgramCounter _determineFinalPc(BasicBlock *bb, Instruction *origin, Value *v);
+    std::optional<ProgramCounter> _determineFinalPc(BasicBlock *bb, Value *v);
     void _establishAllocation(BasicBlock *bb);
 
     Function *_fn;
@@ -173,6 +173,8 @@ void AllocateRegistersImpl::run() {
 
 // Called before allocation. Generates all LiveIntervals and adds them to the queue.
 void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
+    std::vector<LiveCompound *> collected;
+
     // Generate LiveIntervals for phis.
     for (auto phi : bb->phis()) {
         if (auto modeRArgument = hierarchy_cast<ModeRArgumentPhi *>(phi); modeRArgument) {
@@ -184,7 +186,7 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             nodeInterval->associatedValue = phi;
             nodeInterval->compound = compound;
             nodeInterval->originPc = {bb, beforeBlock, nullptr, afterInstruction};
-            nodeInterval->finalPc = _determineFinalPc(bb, 0, phi);
+            nodeInterval->finalPc = _determineFinalPc(bb, phi).value_or(nodeInterval->originPc);
 
             _queue.push(compound);
         } else if (auto modeMDataFlow = hierarchy_cast<ModeMDataFlowPhi *>(phi); modeMDataFlow) {
@@ -196,7 +198,7 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             nodeInterval->associatedValue = phi;
             nodeInterval->compound = compound;
             nodeInterval->originPc = {bb, beforeBlock, nullptr, afterInstruction};
-            nodeInterval->finalPc = _determineFinalPc(bb, 0, phi);
+            nodeInterval->finalPc = _determineFinalPc(bb, phi).value_or(nodeInterval->originPc);
 
             for (auto edge : phi->edges()) {
                 auto aliasInterval = new LiveInterval;
@@ -225,8 +227,7 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             interval->associatedValue = movMC->result();
             interval->compound = compound;
             interval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
-            interval->finalPc = _determineFinalPc(bb, *it, movMC->result());
-            _queue.push(compound);
+            collected.push_back(compound);
         } else if (auto unaryMInPlace = hierarchy_cast<UnaryMInPlaceInstruction *>(*it);
                 unaryMInPlace) {
             auto pseudoMove = bb->insertInstruction(it,
@@ -241,16 +242,14 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             copyInterval->associatedValue = pseudoMove->result();
             copyInterval->compound = compound;
             copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
-            copyInterval->finalPc = ProgramCounter{bb, inBlock, *it, beforeInstruction};
 
             auto resultInterval = new LiveInterval;
             compound->intervals.push_back(resultInterval);
             resultInterval->associatedValue = unaryMInPlace->result();
             resultInterval->compound = compound;
             resultInterval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
-            resultInterval->finalPc = _determineFinalPc(bb, *it, unaryMInPlace->result());
 
-            _queue.push(compound);
+            collected.push_back(compound);
         } else if (auto binaryMRInPlace = hierarchy_cast<BinaryMRInPlaceInstruction *>(*it);
                 binaryMRInPlace) {
             auto pseudoMove = bb->insertInstruction(it,
@@ -265,16 +264,14 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             copyInterval->associatedValue = pseudoMove->result();
             copyInterval->compound = compound;
             copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
-            copyInterval->finalPc = ProgramCounter{bb, inBlock, *it, beforeInstruction};
 
             auto resultInterval = new LiveInterval;
             compound->intervals.push_back(resultInterval);
             resultInterval->associatedValue = binaryMRInPlace->result();
             resultInterval->compound = compound;
             resultInterval->originPc = {bb, inBlock, *it, afterInstruction};
-            resultInterval->finalPc = _determineFinalPc(bb, *it, binaryMRInPlace->result());
 
-            _queue.push(compound);
+            collected.push_back(compound);
         } else if (auto call = hierarchy_cast<CallInstruction *>(*it); call) {
             auto pseudoMove = bb->insertInstruction(it,
                     std::make_unique<PseudoMovMRInstruction>(call->operand.get()));
@@ -288,7 +285,6 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             copyInterval->associatedValue = pseudoMove->result();
             copyInterval->compound = copyCompound;
             copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
-            copyInterval->finalPc = ProgramCounter{bb, inBlock, *it, beforeInstruction};
 
             auto resultCompound = new LiveCompound;
             resultCompound->possibleRegisters = 0x1;
@@ -297,24 +293,33 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             resultCompound->intervals.push_back(resultInterval);
             resultInterval->associatedValue = call->result();
             resultInterval->compound = resultCompound;
-            resultInterval->originPc = {bb, inBlock, *it, afterInstruction};
-            resultInterval->finalPc = _determineFinalPc(bb, *it, call->result());
+            resultInterval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
 
-            _queue.push(copyCompound);
-            _queue.push(resultCompound);
+            collected.push_back(copyCompound);
+            collected.push_back(resultCompound);
         } else {
             assert(!"Unexpected IR instruction");
         }
     }
+
+    // Post-process the generated intervals.
+    for (auto compound : collected) {
+        for (auto interval : compound->intervals) {
+            // Compute the final PC for each interval.
+            auto maybeFinalPc = _determineFinalPc(bb, interval->associatedValue);
+            interval->finalPc = maybeFinalPc.value_or(interval->originPc);
+        }
+
+        _queue.push(compound);
+    }
 }
 
-ProgramCounter AllocateRegistersImpl::_determineFinalPc(BasicBlock *bb,
-        Instruction *origin, Value *v) {
+std::optional<ProgramCounter> AllocateRegistersImpl::_determineFinalPc(BasicBlock *bb, Value *v) {
     Instruction *finalInst = nullptr;
     size_t finalIndex;
     for (auto use : v->uses()) {
         if (!use->instruction()) // Currently, instruction() only return null for phis.
-            return {bb, afterBlock, nullptr, beforeInstruction};
+            return ProgramCounter{bb, afterBlock, nullptr, beforeInstruction};
         auto useInst = use->instruction();
         auto useIndex = bb->indexOfInstruction(useInst);
         if (!finalInst || useIndex > finalIndex) {
@@ -323,8 +328,8 @@ ProgramCounter AllocateRegistersImpl::_determineFinalPc(BasicBlock *bb,
         }
     }
     if(finalInst)
-        return {bb, inBlock, finalInst, beforeInstruction};
-    return {bb, inBlock, origin, afterInstruction};
+        return ProgramCounter{bb, inBlock, finalInst, beforeInstruction};
+    return std::nullopt;
 }
 
 // This is called *after* the actual allocation is done. It "implements" the allocation by
@@ -363,17 +368,24 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
         }, {bb, inBlock, *it, afterInstruction});
 
         // Helper function to rewrite the associatedValue of an interval.
-        auto rewriteResultInterval = [&] (LiveInterval *interval, Value *newValue) {
-            auto it = resultMap.find(interval->associatedValue);
-            assert(it != resultMap.end());
-            resultMap.erase(it);
+        auto rewriteResultInterval = [&] (LiveInterval *interval,
+                Instruction *newInstruction, Value *newValue) {
+            auto resIt = resultMap.find(interval->associatedValue);
+            assert(resIt != resultMap.end());
+            resultMap.erase(resIt);
 
             interval->associatedValue = newValue;
             resultMap.insert({newValue, interval});
+
+            for (auto [overlapValue, overlap] : liveMap) {
+                if (overlap->finalPc.instruction == *it)
+                    overlap->finalPc.instruction = newInstruction;
+            }
         };
 
         // Rewrite pseudo instructions to real instructions.
         if (auto pseudoMovMR = hierarchy_cast<PseudoMovMRInstruction *>(*it); pseudoMovMR) {
+            std::cout << "        Rewriting pseudoMovMR" << std::endl;
             auto resultInterval = resultMap.at(pseudoMovMR->result());
             auto resultCompound = resultInterval->compound;
 
@@ -381,7 +393,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             movMR->result()->modeRegister = resultCompound->allocatedRegister;
             pseudoMovMR->operand = nullptr;
             pseudoMovMR->result()->replaceAllUses(movMR->result());
-            rewriteResultInterval(resultInterval, movMR->result());
+            rewriteResultInterval(resultInterval, movMR.get(), movMR->result());
             it = bb->replaceInstruction(pseudoMovMR, std::move(movMR));
         }
 
