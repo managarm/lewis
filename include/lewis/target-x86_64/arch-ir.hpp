@@ -26,6 +26,9 @@ namespace arch_instruction_kinds {
         xchgMR,
         movMC,
         movMR,
+        // TODO: We certainly want to drop the "WithOffset" specialization.
+        //       This should probably be done after we rewrite Values and make them more useful.
+        movRMWithOffset,
         negM,
         addMR,
         andMR,
@@ -90,7 +93,8 @@ struct UnaryMOverwriteInstruction
 : Instruction, WithModeMResult,
         CastableIfInstructionKind<UnaryMOverwriteInstruction,
                 arch_instruction_kinds::pseudoMovMR,
-                arch_instruction_kinds::movMR> {
+                arch_instruction_kinds::movMR,
+                arch_instruction_kinds::movRMWithOffset> {
     UnaryMOverwriteInstruction(InstructionKindType kind, Value *operand_ = nullptr)
     : Instruction{kind}, operand{this, operand_} { }
 
@@ -141,6 +145,17 @@ struct MovMRInstruction
         CastableIfInstructionKind<MovMRInstruction, arch_instruction_kinds::movMR> {
     MovMRInstruction(Value *operand_ = nullptr)
     : UnaryMOverwriteInstruction{arch_instruction_kinds::movMR, operand_} { }
+};
+
+struct MovRMWithOffsetInstruction
+: UnaryMOverwriteInstruction,
+        CastableIfInstructionKind<MovRMWithOffsetInstruction,
+                arch_instruction_kinds::movRMWithOffset> {
+    MovRMWithOffsetInstruction(Value *operand_ = nullptr, int32_t offset_ = 0)
+    : UnaryMOverwriteInstruction{arch_instruction_kinds::movRMWithOffset, operand_},
+            offset{offset_} { }
+
+    int32_t offset;
 };
 
 struct XchgMRInstruction

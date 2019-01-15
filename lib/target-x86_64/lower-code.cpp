@@ -41,6 +41,12 @@ void LowerCodeImpl::run() {
             lower->value = loadConst->value;
             loadConst->result()->replaceAllUses(lower->result());
             it = _bb->replaceInstruction(it, std::move(lower));
+        } else if (auto loadOffset = hierarchy_cast<LoadOffsetInstruction *>(*it); loadOffset) {
+            auto lower = std::make_unique<MovRMWithOffsetInstruction>(loadOffset->operand.get(),
+                    loadOffset->offset);
+            loadOffset->result()->replaceAllUses(lower->result());
+            loadOffset->operand = nullptr;
+            it = _bb->replaceInstruction(it, std::move(lower));
         } else if (auto unaryMath = hierarchy_cast<UnaryMathInstruction *>(*it); unaryMath) {
             std::unique_ptr<UnaryMInPlaceInstruction> lower;
             if (unaryMath->opcode == UnaryMathOpcode::negate) {
@@ -49,8 +55,8 @@ void LowerCodeImpl::run() {
                 assert(!"Unexpected unary math opcode");
             }
             lower->primary = unaryMath->operand.get();
-            unaryMath->operand = nullptr;
             unaryMath->result()->replaceAllUses(lower->result());
+            unaryMath->operand = nullptr;
             it = _bb->replaceInstruction(it, std::move(lower));
         } else if (auto binaryMath = hierarchy_cast<BinaryMathInstruction *>(*it); binaryMath) {
             std::unique_ptr<BinaryMRInPlaceInstruction> lower;
@@ -63,16 +69,16 @@ void LowerCodeImpl::run() {
             }
             lower->primary = binaryMath->left.get();
             lower->secondary = binaryMath->right.get();
+            binaryMath->result()->replaceAllUses(lower->result());
             binaryMath->left = nullptr;
             binaryMath->right = nullptr;
-            binaryMath->result()->replaceAllUses(lower->result());
             it = _bb->replaceInstruction(it, std::move(lower));
         } else if (auto invoke = hierarchy_cast<InvokeInstruction *>(*it); invoke) {
             auto lower = std::make_unique<CallInstruction>();
             lower->function = invoke->function;
             lower->operand = invoke->operand.get();
-            invoke->operand = nullptr;
             invoke->result()->replaceAllUses(lower->result());
+            invoke->operand = nullptr;
             it = _bb->replaceInstruction(it, std::move(lower));
         } else {
             assert(!"Unexpected generic IR instruction");

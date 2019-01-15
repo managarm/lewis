@@ -49,6 +49,22 @@ void encodeMode(util::ByteEncoder &enc, Value *mv, Value *rv) {
     encodeModRm(enc, 3, mr, rr);
 }
 
+void encodeModeWithDisp(util::ByteEncoder &enc, Value *mv, int32_t disp, Value *rv) {
+    auto mr = getRegister(mv);
+    auto rr = getRegister(rv);
+    assert(mr >= 0);
+    assert(rr >= 0);
+    if (disp >= -128 && disp <= 127) {
+        // Encode the displacement in 8 bits.
+        encodeModRm(enc, 1, mr, rr);
+        encode8(enc, disp);
+    } else {
+        // Encode the displacement in 32 bits.
+        encodeModRm(enc, 2, mr, rr);
+        encode32(enc, disp);
+    }
+}
+
 void MachineCodeEmitter::run() {
     auto textString = _elf->addString(std::make_unique<lewis::elf::String>(".text"));
     auto symbolString = _elf->addString(std::make_unique<lewis::elf::String>("doSomething"));
@@ -77,6 +93,11 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
         } else if (auto movMR = hierarchy_cast<MovMRInstruction *>(inst); movMR) {
             encode8(text, 0x89);
             encodeMode(text, movMR->result(), movMR->operand.get());
+        } else if (auto movRMWithOffset = hierarchy_cast<MovRMWithOffsetInstruction *>(inst);
+                movRMWithOffset) {
+            encode8(text, 0x8B);
+            encodeModeWithDisp(text, movRMWithOffset->result(), movRMWithOffset->offset,
+                    movRMWithOffset->operand.get());
         } else if (auto xchgMR = hierarchy_cast<XchgMRInstruction *>(inst); xchgMR) {
             encode8(text, 0x87);
             encodeMode(text, xchgMR->firstResult(), xchgMR->secondResult());

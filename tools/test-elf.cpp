@@ -12,8 +12,8 @@ int main() {
     lewis::Function f0;
     auto b0 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
     auto p0 = b0->attachPhi(std::make_unique<lewis::ArgumentPhi>());
-    auto i1 = b0->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
-            lewis::UnaryMathOpcode::negate, p0));
+    auto i1 = b0->insertInstruction(std::make_unique<lewis::LoadOffsetInstruction>(
+            p0, 4));
     auto i2 = b0->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
             lewis::UnaryMathOpcode::negate, i1->result()));
     (void)i2;

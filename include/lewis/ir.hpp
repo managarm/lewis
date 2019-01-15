@@ -153,6 +153,7 @@ namespace instruction_kinds {
     enum : InstructionKindType {
         null,
         loadConst,
+        loadOffset,
         unaryMath,
         binaryMath,
         invoke,
@@ -650,6 +651,18 @@ struct LoadConstInstruction
 
     // TODO: This value should probably be more generic. For now, uint64_t is sufficient though.
     uint64_t value;
+};
+
+// TODO: In the long term, we probably want instructions to form pointers
+// and instructions to dereference them. This is only a short-term solution.
+struct LoadOffsetInstruction
+: Instruction, WithGenericResult,
+        CastableIfInstructionKind<LoadOffsetInstruction, instruction_kinds::loadOffset> {
+    LoadOffsetInstruction(Value *operand_ = nullptr, int64_t offset_ = 0)
+    : Instruction{instruction_kinds::loadOffset}, operand{this, operand_}, offset{offset_} { }
+
+    ValueUse operand;
+    int64_t offset;
 };
 
 enum class UnaryMathOpcode {

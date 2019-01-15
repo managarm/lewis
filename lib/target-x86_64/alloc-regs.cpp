@@ -228,6 +228,18 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             interval->compound = compound;
             interval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
             collected.push_back(compound);
+        } else if (auto unaryMOverwrite = hierarchy_cast<UnaryMOverwriteInstruction *>(*it);
+                unaryMOverwrite) {
+            auto compound = new LiveCompound;
+            compound->possibleRegisters = 0xF;
+
+            auto resultInterval = new LiveInterval;
+            compound->intervals.push_back(resultInterval);
+            resultInterval->associatedValue = unaryMOverwrite->result();
+            resultInterval->compound = compound;
+            resultInterval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
+
+            collected.push_back(compound);
         } else if (auto unaryMInPlace = hierarchy_cast<UnaryMInPlaceInstruction *>(*it);
                 unaryMInPlace) {
             auto pseudoMove = bb->insertInstruction(it,
