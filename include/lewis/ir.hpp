@@ -539,6 +539,10 @@ struct BasicBlock {
         return ptr;
     }
 
+    void eraseInstruction(InstructionIterator it) {
+        _insts.remove(it._inst);
+    }
+
     InstructionIterator replaceInstruction(InstructionIterator from,
             std::unique_ptr<Instruction> to) {
         assert(from._inst);

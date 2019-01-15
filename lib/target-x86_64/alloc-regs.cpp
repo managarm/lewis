@@ -355,7 +355,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
         }
     }
 
-    for (auto it = bb->instructions().begin(); it != bb->instructions().end(); ++it) {
+    for (auto it = bb->instructions().begin(); it != bb->instructions().end(); ) {
         std::cout << "    Fixing instruction " << *it << ", kind "
                 << (*it)->kind << std::endl;
 
@@ -367,34 +367,49 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             resultMap.insert({interval->associatedValue, interval});
         }, {bb, inBlock, *it, afterInstruction});
 
-        // Helper function to rewrite the associatedValue of an interval.
-        auto rewriteResultInterval = [&] (LiveInterval *interval,
-                Instruction *newInstruction, Value *newValue) {
+        // Helper function to fuse a result interval (from resultMap)
+        // into a live interval (from liveMap).
+        auto fuseResultInterval = [&] (LiveInterval *into, LiveInterval *interval) {
+            auto resIt = resultMap.find(interval->associatedValue);
+            assert(resIt != resultMap.end());
+            resultMap.erase(resIt);
+
+            assert((into->finalPc == ProgramCounter{bb, inBlock, *it, beforeInstruction}));
+            into->finalPc = interval->finalPc;
+        };
+
+        // Helper function to rewrite the associatedValue of a result interval (from resultMap).
+        auto reassociateResultInterval = [&] (LiveInterval *interval, Value *newValue) {
             auto resIt = resultMap.find(interval->associatedValue);
             assert(resIt != resultMap.end());
             resultMap.erase(resIt);
 
             interval->associatedValue = newValue;
             resultMap.insert({newValue, interval});
-
-            for (auto [overlapValue, overlap] : liveMap) {
-                if (overlap->finalPc.instruction == *it)
-                    overlap->finalPc.instruction = newInstruction;
-            }
         };
 
         // Rewrite pseudo instructions to real instructions.
+        bool rewroteInstruction = false;
         if (auto pseudoMovMR = hierarchy_cast<PseudoMovMRInstruction *>(*it); pseudoMovMR) {
             std::cout << "        Rewriting pseudoMovMR" << std::endl;
+            auto operandInterval = liveMap.at(pseudoMovMR->operand.get());
             auto resultInterval = resultMap.at(pseudoMovMR->result());
-            auto resultCompound = resultInterval->compound;
+            if (operandInterval->compound->allocatedRegister
+                    == resultInterval->compound->allocatedRegister) {
+                pseudoMovMR->result()->replaceAllUses(pseudoMovMR->operand.get());
 
-            auto movMR = std::make_unique<MovMRInstruction>(pseudoMovMR->operand.get());
-            movMR->result()->modeRegister = resultCompound->allocatedRegister;
-            pseudoMovMR->operand = nullptr;
-            pseudoMovMR->result()->replaceAllUses(movMR->result());
-            rewriteResultInterval(resultInterval, movMR.get(), movMR->result());
-            it = bb->replaceInstruction(pseudoMovMR, std::move(movMR));
+                fuseResultInterval(operandInterval, resultInterval);
+                rewroteInstruction = true;
+            }else{
+                auto movMR = std::make_unique<MovMRInstruction>(pseudoMovMR->operand.get());
+                movMR->result()->modeRegister = resultInterval->compound->allocatedRegister;
+                pseudoMovMR->operand = nullptr;
+                pseudoMovMR->result()->replaceAllUses(movMR->result());
+
+                reassociateResultInterval(resultInterval, movMR->result());
+                bb->insertInstruction(it, std::move(movMR));
+                rewroteInstruction = true;
+            }
         }
 
         // Fix the allocation for all results of the current instruction.
@@ -433,6 +448,12 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 ++liveIt;
             }
         }
+
+        auto nextIt = it;
+        ++nextIt;
+        if (rewroteInstruction)
+            bb->eraseInstruction(it);
+        it = nextIt;
     }
 
     // The following code emits moves to ensure that Values that are used in phis are in the
