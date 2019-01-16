@@ -19,6 +19,10 @@ private:
 };
 
 void LowerCodeImpl::run() {
+    auto lowerValue = [] (Value *) {
+        return std::make_unique<ModeMValue>();
+    };
+
     for (auto it = _bb->phis().begin(); it != _bb->phis().end(); ++it) {
         if (auto argument = hierarchy_cast<ArgumentPhi *>(*it); argument) {
             auto lower = std::make_unique<ModeRArgumentPhi>();
@@ -38,13 +42,17 @@ void LowerCodeImpl::run() {
     for (auto it = _bb->instructions().begin(); it != _bb->instructions().end(); ++it) {
         if (auto loadConst = hierarchy_cast<LoadConstInstruction *>(*it); loadConst) {
             auto lower = std::make_unique<MovMCInstruction>();
+            auto lowerResult = lower->result.set(lowerValue(lower->result.get()));
             lower->value = loadConst->value;
-            loadConst->result()->replaceAllUses(lower->result());
+            loadConst->result.get()->replaceAllUses(lowerResult);
+
             it = _bb->replaceInstruction(it, std::move(lower));
         } else if (auto loadOffset = hierarchy_cast<LoadOffsetInstruction *>(*it); loadOffset) {
             auto lower = std::make_unique<MovRMWithOffsetInstruction>(loadOffset->operand.get(),
                     loadOffset->offset);
-            loadOffset->result()->replaceAllUses(lower->result());
+            auto lowerResult = lower->result.set(lowerValue(lower->result.get()));
+            loadOffset->result.get()->replaceAllUses(lowerResult);
+
             loadOffset->operand = nullptr;
             it = _bb->replaceInstruction(it, std::move(lower));
         } else if (auto unaryMath = hierarchy_cast<UnaryMathInstruction *>(*it); unaryMath) {
@@ -54,30 +62,36 @@ void LowerCodeImpl::run() {
             } else {
                 assert(!"Unexpected unary math opcode");
             }
+            auto lowerResult = lower->result.set(lowerValue(lower->result.get()));
             lower->primary = unaryMath->operand.get();
-            unaryMath->result()->replaceAllUses(lower->result());
+            unaryMath->result.get()->replaceAllUses(lowerResult);
+
             unaryMath->operand = nullptr;
             it = _bb->replaceInstruction(it, std::move(lower));
         } else if (auto binaryMath = hierarchy_cast<BinaryMathInstruction *>(*it); binaryMath) {
             std::unique_ptr<BinaryMRInPlaceInstruction> lower;
             if (binaryMath->opcode == BinaryMathOpcode::add) {
                 lower = std::make_unique<AddMRInstruction>();
-            }else if (binaryMath->opcode == BinaryMathOpcode::bitwiseAnd) {
+            } else if (binaryMath->opcode == BinaryMathOpcode::bitwiseAnd) {
                 lower = std::make_unique<AndMRInstruction>();
             } else {
                 assert(!"Unexpected binary math opcode");
             }
+            auto lowerResult = lower->result.set(lowerValue(lower->result.get()));
             lower->primary = binaryMath->left.get();
             lower->secondary = binaryMath->right.get();
-            binaryMath->result()->replaceAllUses(lower->result());
+            binaryMath->result.get()->replaceAllUses(lowerResult);
+
             binaryMath->left = nullptr;
             binaryMath->right = nullptr;
             it = _bb->replaceInstruction(it, std::move(lower));
         } else if (auto invoke = hierarchy_cast<InvokeInstruction *>(*it); invoke) {
             auto lower = std::make_unique<CallInstruction>();
+            auto lowerResult = lower->result.set(lowerValue(lower->result.get()));
             lower->function = invoke->function;
             lower->operand = invoke->operand.get();
-            invoke->result()->replaceAllUses(lower->result());
+            invoke->result.get()->replaceAllUses(lowerResult);
+
             invoke->operand = nullptr;
             it = _bb->replaceInstruction(it, std::move(lower));
         } else {

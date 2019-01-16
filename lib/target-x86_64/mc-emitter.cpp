@@ -22,7 +22,7 @@ int getRegister(Value *v) {
         }
     }
 
-    if (auto modeMResult = hierarchy_cast<ModeMResult *>(v); modeMResult) {
+    if (auto modeMResult = hierarchy_cast<ModeMValue *>(v); modeMResult) {
         return modeMResult->modeRegister;
     } else {
         assert(!"Unexpected x86_64 IR value");
@@ -87,29 +87,29 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
 
     for (auto inst : bb->instructions()) {
         if (auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
-            assert(movMC->result()->modeRegister >= 0);
-            encode8(text, 0xB8 + movMC->result()->modeRegister);
+            assert(getRegister(movMC->result.get()) >= 0);
+            encode8(text, 0xB8 + getRegister(movMC->result.get()));
             encode32(text, movMC->value);
         } else if (auto movMR = hierarchy_cast<MovMRInstruction *>(inst); movMR) {
             encode8(text, 0x89);
-            encodeMode(text, movMR->result(), movMR->operand.get());
+            encodeMode(text, movMR->result.get(), movMR->operand.get());
         } else if (auto movRMWithOffset = hierarchy_cast<MovRMWithOffsetInstruction *>(inst);
                 movRMWithOffset) {
             encode8(text, 0x8B);
-            encodeModeWithDisp(text, movRMWithOffset->result(), movRMWithOffset->offset,
+            encodeModeWithDisp(text, movRMWithOffset->result.get(), movRMWithOffset->offset,
                     movRMWithOffset->operand.get());
         } else if (auto xchgMR = hierarchy_cast<XchgMRInstruction *>(inst); xchgMR) {
             encode8(text, 0x87);
             encodeMode(text, xchgMR->firstResult(), xchgMR->secondResult());
         } else if (auto negM = hierarchy_cast<NegMInstruction *>(inst); negM) {
             encode8(text, 0xF7);
-            encodeMode(text, negM->result(), 3);
+            encodeMode(text, negM->result.get(), 3);
         } else if (auto addMR = hierarchy_cast<AddMRInstruction *>(inst); addMR) {
             encode8(text, 0x01);
-            encodeMode(text, addMR->result(), addMR->secondary.get());
+            encodeMode(text, addMR->result.get(), addMR->secondary.get());
         } else if (auto andMR = hierarchy_cast<AndMRInstruction *>(inst); andMR) {
             encode8(text, 0x21);
-            encodeMode(text, andMR->result(), andMR->secondary.get());
+            encodeMode(text, andMR->result.get(), andMR->secondary.get());
         }else if (auto call = hierarchy_cast<CallInstruction *>(inst); call) {
             auto string = _elf->addString(std::make_unique<elf::String>(call->function));
             auto symbol = _elf->addSymbol(std::make_unique<elf::Symbol>());

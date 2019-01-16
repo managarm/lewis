@@ -14,9 +14,10 @@ int main() {
     auto p0 = b0->attachPhi(std::make_unique<lewis::ArgumentPhi>());
     auto i1 = b0->insertInstruction(std::make_unique<lewis::LoadOffsetInstruction>(
             p0, 4));
+    auto v2 = i1->result.setNew<lewis::LocalValue>();
     auto i2 = b0->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
-            lewis::UnaryMathOpcode::negate, i1->result()));
-    (void)i2;
+            lewis::UnaryMathOpcode::negate, v2));
+    i2->result.setNew<lewis::LocalValue>();
     b0->setBranch(std::make_unique<lewis::FunctionReturnBranch>());
 
     auto lo0 = lewis::targets::x86_64::LowerCodePass::create(b0);

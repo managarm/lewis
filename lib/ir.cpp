@@ -6,6 +6,10 @@
 
 namespace lewis {
 
+void ValueOrigin::doSet(std::unique_ptr<Value> v) {
+    _value = v.release();
+}
+
 void ValueUse::assign(Value *v) {
     if (_ref) {
         auto it = _ref->_useList.iterator_to(this);

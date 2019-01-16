@@ -52,10 +52,10 @@ namespace arch_branch_kinds {
     };
 }
 
-struct ModeMResult
+struct ModeMValue
 : Value,
-        CastableIfValueKind<ModeMResult, arch_value_kinds::modeMResult> {
-    ModeMResult()
+        CastableIfValueKind<ModeMValue, arch_value_kinds::modeMResult> {
+    ModeMValue()
     : Value{arch_value_kinds::modeMResult} { }
 
     int modeRegister = -1;
@@ -79,18 +79,9 @@ struct ModeMDataFlowPhi
     int modeRegister = -1;
 };
 
-struct WithModeMResult {
-    ModeMResult *result() {
-        return &_result;
-    }
-
-private:
-    ModeMResult _result;
-};
-
 // Instruction that takes a single operand and overwrites a mode M result.
 struct UnaryMOverwriteInstruction
-: Instruction, WithModeMResult,
+: Instruction,
         CastableIfInstructionKind<UnaryMOverwriteInstruction,
                 arch_instruction_kinds::pseudoMovMR,
                 arch_instruction_kinds::movMR,
@@ -98,27 +89,30 @@ struct UnaryMOverwriteInstruction
     UnaryMOverwriteInstruction(InstructionKindType kind, Value *operand_ = nullptr)
     : Instruction{kind}, operand{this, operand_} { }
 
+    ValueOrigin result;
     ValueUse operand;
 };
 
 // Instruction that takes a single mode M operand and replaces it by the result.
 struct UnaryMInPlaceInstruction
-: Instruction, WithModeMResult,
+: Instruction,
         CastableIfInstructionKind<UnaryMInPlaceInstruction, arch_instruction_kinds::negM> {
     UnaryMInPlaceInstruction(InstructionKindType kind, Value *primary_ = nullptr)
     : Instruction{kind}, primary{this, primary_} { }
 
+    ValueOrigin result;
     ValueUse primary;
 };
 
 struct BinaryMRInPlaceInstruction
-: Instruction, WithModeMResult, CastableIfInstructionKind<BinaryMRInPlaceInstruction,
+: Instruction, CastableIfInstructionKind<BinaryMRInPlaceInstruction,
         arch_instruction_kinds::addMR,
         arch_instruction_kinds::andMR> {
     BinaryMRInPlaceInstruction(InstructionKindType kind,
             Value *primary_ = nullptr, Value *secondary_ = nullptr)
     : Instruction{kind}, primary{this, primary_}, secondary{this, secondary_} { }
 
+    ValueOrigin result;
     ValueUse primary;
     ValueUse secondary;
 };
@@ -132,11 +126,12 @@ struct PseudoMovMRInstruction
 
 // TODO: Turn this into a UnaryMOverwriteInstruction.
 struct MovMCInstruction
-: Instruction, WithModeMResult,
+: Instruction,
         CastableIfInstructionKind<MovMCInstruction, arch_instruction_kinds::movMC> {
     MovMCInstruction()
     : Instruction{arch_instruction_kinds::movMC} { }
 
+    ValueOrigin result;
     uint64_t value = 0;
 };
 
@@ -166,11 +161,11 @@ struct XchgMRInstruction
     : Instruction{arch_instruction_kinds::xchgMR},
         firstOperand{this, first}, secondOperand{this, second} { }
 
-    ModeMResult *firstResult() {
+    ModeMValue *firstResult() {
         return &_firstResult;
     }
 
-    ModeMResult *secondResult() {
+    ModeMValue *secondResult() {
         return &_secondResult;
     }
 
@@ -178,8 +173,8 @@ struct XchgMRInstruction
     ValueUse secondOperand;
 
 private:
-    ModeMResult _firstResult;
-    ModeMResult _secondResult;
+    ModeMValue _firstResult;
+    ModeMValue _secondResult;
 };
 
 struct NegMInstruction
@@ -204,12 +199,13 @@ struct AndMRInstruction
 };
 
 struct CallInstruction
-: Instruction, WithModeMResult,
+: Instruction,
         CastableIfInstructionKind<CallInstruction, arch_instruction_kinds::call> {
     CallInstruction(Value *operand_ = nullptr)
     : Instruction{arch_instruction_kinds::call}, operand{this, operand_} { }
 
     std::string function;
+    ValueOrigin result;
     ValueUse operand;
 };
 

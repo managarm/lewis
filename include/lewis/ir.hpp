@@ -23,6 +23,34 @@ struct BasicBlock;
 // ValueUse class to represent "uses" of a Value.
 //---------------------------------------------------------------------------------------
 
+struct ValueOrigin {
+    friend struct Value;
+
+    ValueOrigin()
+    : _value{nullptr} { }
+
+    Value *get() {
+        return _value;
+    }
+
+    void doSet(std::unique_ptr<Value> value);
+
+    template<typename T>
+    T *set(std::unique_ptr<T> value) {
+        auto ptr = value.get();
+        doSet(std::move(value));
+        return ptr;
+    }
+
+    template<typename T, typename... Args>
+    T *setNew(Args &&... args) {
+        return set(std::make_unique<T>(std::forward<Args>(args)...));
+    }
+
+private:
+    Value *_value;
+};
+
 // Represents a single "use" of a Value. This is necessary to support Value replacement.
 // For convenience, this class also has a Value pointer-like interface.
 struct ValueUse {
@@ -82,7 +110,7 @@ namespace value_kinds {
     enum : ValueKindType {
         null,
         phi,
-        genericResult,
+        local,
 
         // Give each architecture 16k values; that should be enough.
         kindsForX86 = 1 << 14
@@ -623,20 +651,11 @@ private:
 //---------------------------------------------------------------------------------------
 
 // Value subclass for results of instructions without special properties.
-struct GenericResult
+struct LocalValue
 : Value,
-        CastableIfValueKind<GenericResult, value_kinds::genericResult> {
-    GenericResult()
-    : Value{value_kinds::genericResult} { }
-};
-
-struct WithGenericResult {
-    GenericResult *result() {
-        return &_result;
-    }
-
-private:
-    GenericResult _result;
+        CastableIfValueKind<LocalValue, value_kinds::local> {
+    LocalValue()
+    : Value{value_kinds::local} { }
 };
 
 //---------------------------------------------------------------------------------------
@@ -644,11 +663,12 @@ private:
 //---------------------------------------------------------------------------------------
 
 struct LoadConstInstruction
-: Instruction, WithGenericResult,
+: Instruction,
         CastableIfInstructionKind<LoadConstInstruction, instruction_kinds::loadConst> {
     LoadConstInstruction(uint64_t value_ = 0)
     : Instruction{instruction_kinds::loadConst}, value{value_} { }
 
+    ValueOrigin result;
     // TODO: This value should probably be more generic. For now, uint64_t is sufficient though.
     uint64_t value;
 };
@@ -656,11 +676,12 @@ struct LoadConstInstruction
 // TODO: In the long term, we probably want instructions to form pointers
 // and instructions to dereference them. This is only a short-term solution.
 struct LoadOffsetInstruction
-: Instruction, WithGenericResult,
+: Instruction,
         CastableIfInstructionKind<LoadOffsetInstruction, instruction_kinds::loadOffset> {
     LoadOffsetInstruction(Value *operand_ = nullptr, int64_t offset_ = 0)
     : Instruction{instruction_kinds::loadOffset}, operand{this, operand_}, offset{offset_} { }
 
+    ValueOrigin result;
     ValueUse operand;
     int64_t offset;
 };
@@ -671,13 +692,14 @@ enum class UnaryMathOpcode {
 };
 
 struct UnaryMathInstruction
-: Instruction, WithGenericResult,
+: Instruction,
         CastableIfInstructionKind<UnaryMathInstruction, instruction_kinds::unaryMath> {
     UnaryMathInstruction(UnaryMathOpcode opcode_ = UnaryMathOpcode::null,
             Value *operand_ = nullptr)
     : Instruction{instruction_kinds::unaryMath}, opcode{opcode_}, operand{this, operand_} { }
 
     UnaryMathOpcode opcode;
+    ValueOrigin result;
     ValueUse operand;
 };
 
@@ -688,7 +710,7 @@ enum class BinaryMathOpcode {
 };
 
 struct BinaryMathInstruction
-: Instruction, WithGenericResult,
+: Instruction,
         CastableIfInstructionKind<BinaryMathInstruction, instruction_kinds::binaryMath> {
     BinaryMathInstruction(BinaryMathOpcode opcode_ = BinaryMathOpcode::null,
             Value *left_ = nullptr, Value *right_ = nullptr)
@@ -696,18 +718,20 @@ struct BinaryMathInstruction
             left{this, left_}, right{this, right_} { }
 
     BinaryMathOpcode opcode;
+    ValueOrigin result;
     ValueUse left;
     ValueUse right;
 };
 
 struct InvokeInstruction
-: Instruction, WithGenericResult,
+: Instruction,
         CastableIfInstructionKind<InvokeInstruction, instruction_kinds::invoke> {
     InvokeInstruction(std::string function, Value *operand_ = nullptr)
     : Instruction{instruction_kinds::invoke}, function{std::move(function)},
             operand{this, operand_} { }
 
     std::string function;
+    ValueOrigin result;
     ValueUse operand;
 };
 

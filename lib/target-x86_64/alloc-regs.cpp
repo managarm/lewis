@@ -9,6 +9,26 @@
 
 namespace lewis::targets::x86_64 {
 
+namespace {
+    void setRegister(Value *v, int registerIdx) {
+        if (auto phi = hierarchy_cast<PhiNode *>(v); phi) {
+            if (auto modeRArgument = hierarchy_cast<ModeRArgumentPhi *>(phi)) {
+                modeRArgument->modeRegister = registerIdx;
+            } else if (auto modeMDataFlow = hierarchy_cast<ModeMDataFlowPhi *>(phi)) {
+                modeMDataFlow->modeRegister = registerIdx;
+            } else {
+                assert(!"Unexpected x86_64 IR phi");
+            }
+        }
+
+        if (auto modeMResult = hierarchy_cast<ModeMValue *>(v); modeMResult) {
+            modeMResult->modeRegister = registerIdx;
+        } else {
+            assert(!"Unexpected x86_64 IR value");
+        }
+    }
+}
+
 enum SubBlock {
     beforeBlock = -1,
     inBlock = 0,
@@ -224,7 +244,7 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
 
             auto interval = new LiveInterval;
             compound->intervals.push_back(interval);
-            interval->associatedValue = movMC->result();
+            interval->associatedValue = movMC->result.get();
             interval->compound = compound;
             interval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
             collected.push_back(compound);
@@ -235,7 +255,7 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
 
             auto resultInterval = new LiveInterval;
             compound->intervals.push_back(resultInterval);
-            resultInterval->associatedValue = unaryMOverwrite->result();
+            resultInterval->associatedValue = unaryMOverwrite->result.get();
             resultInterval->compound = compound;
             resultInterval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
 
@@ -244,20 +264,21 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
                 unaryMInPlace) {
             auto pseudoMove = bb->insertInstruction(it,
                     std::make_unique<PseudoMovMRInstruction>(unaryMInPlace->primary.get()));
-            unaryMInPlace->primary = pseudoMove->result();
+            auto pseudoMoveResult = pseudoMove->result.setNew<ModeMValue>();
+            unaryMInPlace->primary = pseudoMoveResult;
 
             auto compound = new LiveCompound;
             compound->possibleRegisters = 0xF;
 
             auto copyInterval = new LiveInterval;
             compound->intervals.push_back(copyInterval);
-            copyInterval->associatedValue = pseudoMove->result();
+            copyInterval->associatedValue = pseudoMoveResult;
             copyInterval->compound = compound;
             copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
 
             auto resultInterval = new LiveInterval;
             compound->intervals.push_back(resultInterval);
-            resultInterval->associatedValue = unaryMInPlace->result();
+            resultInterval->associatedValue = unaryMInPlace->result.get();
             resultInterval->compound = compound;
             resultInterval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
 
@@ -266,20 +287,21 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
                 binaryMRInPlace) {
             auto pseudoMove = bb->insertInstruction(it,
                     std::make_unique<PseudoMovMRInstruction>(binaryMRInPlace->primary.get()));
-            binaryMRInPlace->primary = pseudoMove->result();
+            auto pseudoMoveResult = pseudoMove->result.setNew<ModeMValue>();
+            binaryMRInPlace->primary = pseudoMoveResult;
 
             auto compound = new LiveCompound;
             compound->possibleRegisters = 0xF;
 
             auto copyInterval = new LiveInterval;
             compound->intervals.push_back(copyInterval);
-            copyInterval->associatedValue = pseudoMove->result();
+            copyInterval->associatedValue = pseudoMoveResult;
             copyInterval->compound = compound;
             copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
 
             auto resultInterval = new LiveInterval;
             compound->intervals.push_back(resultInterval);
-            resultInterval->associatedValue = binaryMRInPlace->result();
+            resultInterval->associatedValue = binaryMRInPlace->result.get();
             resultInterval->compound = compound;
             resultInterval->originPc = {bb, inBlock, *it, afterInstruction};
 
@@ -287,14 +309,14 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
         } else if (auto call = hierarchy_cast<CallInstruction *>(*it); call) {
             auto pseudoMove = bb->insertInstruction(it,
                     std::make_unique<PseudoMovMRInstruction>(call->operand.get()));
-            call->operand = pseudoMove->result();
+            call->operand = pseudoMove->result.get();
 
             auto copyCompound = new LiveCompound;
             copyCompound->possibleRegisters = 0x80;
 
             auto copyInterval = new LiveInterval;
             copyCompound->intervals.push_back(copyInterval);
-            copyInterval->associatedValue = pseudoMove->result();
+            copyInterval->associatedValue = pseudoMove->result.get();
             copyInterval->compound = copyCompound;
             copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
 
@@ -303,7 +325,7 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
 
             auto resultInterval = new LiveInterval;
             resultCompound->intervals.push_back(resultInterval);
-            resultInterval->associatedValue = call->result();
+            resultInterval->associatedValue = call->result.get();
             resultInterval->compound = resultCompound;
             resultInterval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
 
@@ -405,20 +427,22 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
         if (auto pseudoMovMR = hierarchy_cast<PseudoMovMRInstruction *>(*it); pseudoMovMR) {
             std::cout << "        Rewriting pseudoMovMR" << std::endl;
             auto operandInterval = liveMap.at(pseudoMovMR->operand.get());
-            auto resultInterval = resultMap.at(pseudoMovMR->result());
+            auto resultInterval = resultMap.at(pseudoMovMR->result.get());
             if (operandInterval->compound->allocatedRegister
                     == resultInterval->compound->allocatedRegister) {
-                pseudoMovMR->result()->replaceAllUses(pseudoMovMR->operand.get());
+                pseudoMovMR->result.get()->replaceAllUses(pseudoMovMR->operand.get());
 
                 fuseResultInterval(operandInterval, resultInterval);
                 rewroteInstruction = true;
             }else{
                 auto movMR = std::make_unique<MovMRInstruction>(pseudoMovMR->operand.get());
-                movMR->result()->modeRegister = resultInterval->compound->allocatedRegister;
-                pseudoMovMR->operand = nullptr;
-                pseudoMovMR->result()->replaceAllUses(movMR->result());
+                auto movMRResult = movMR->result.setNew<ModeMValue>();
+                setRegister(movMRResult, resultInterval->compound->allocatedRegister);
 
-                reassociateResultInterval(resultInterval, movMR->result());
+                pseudoMovMR->operand = nullptr;
+                pseudoMovMR->result.get()->replaceAllUses(movMRResult);
+
+                reassociateResultInterval(resultInterval, movMRResult);
                 bb->insertInstruction(it, std::move(movMR));
                 rewroteInstruction = true;
             }
@@ -426,7 +450,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
         // Fix the allocation for all results of the current instruction.
         for (auto [value, interval] : resultMap) {
-            auto modeM = hierarchy_cast<ModeMResult *>(value);
+            auto modeM = hierarchy_cast<ModeMValue *>(value);
             assert(modeM);
             modeM->modeRegister = interval->compound->allocatedRegister;
         }
@@ -558,7 +582,8 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             do {
                 assert(chainInterval->associatedValue);
                 auto move = std::make_unique<MovMRInstruction>(chainInterval->associatedValue);
-                move->result()->modeRegister = chainInterval->compound->allocatedRegister;
+                auto moveResult = move->result.setNew<ModeMValue>();
+                setRegister(moveResult, chainInterval->compound->allocatedRegister);
                 bb->insertInstruction(std::move(move));
 
                 chainInterval = chainInterval->previousMoveInChain;
