@@ -11,17 +11,27 @@
 int main() {
     lewis::Function f0;
     auto b0 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
+    auto b1 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
+
     auto p0 = b0->attachPhi(std::make_unique<lewis::ArgumentPhi>());
+    auto v0 = p0->value.setNew<lewis::LocalValue>();
     auto i1 = b0->insertInstruction(std::make_unique<lewis::LoadOffsetInstruction>(
-            p0, 4));
-    auto v2 = i1->result.setNew<lewis::LocalValue>();
-    auto i2 = b0->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
+            v0, 4));
+    auto v1 = i1->result.setNew<lewis::LocalValue>();
+    b0->setBranch(std::make_unique<lewis::UnconditionalBranch>(b1));
+
+    auto p1 = b1->attachPhi(std::make_unique<lewis::DataFlowPhi>());
+    p1->attachNewEdge(b0, v1);
+    auto v2 = p1->value.setNew<lewis::LocalValue>();
+    auto i2 = b1->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
             lewis::UnaryMathOpcode::negate, v2));
     i2->result.setNew<lewis::LocalValue>();
-    b0->setBranch(std::make_unique<lewis::FunctionReturnBranch>());
+    b1->setBranch(std::make_unique<lewis::FunctionReturnBranch>());
 
-    auto lo0 = lewis::targets::x86_64::LowerCodePass::create(b0);
-    lo0->run();
+    for (auto bb : f0.blocks()) {
+        auto lo = lewis::targets::x86_64::LowerCodePass::create(bb);
+        lo->run();
+    }
     auto ra = lewis::targets::x86_64::AllocateRegistersPass::create(&f0);
     ra->run();
 

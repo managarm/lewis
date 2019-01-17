@@ -11,18 +11,8 @@ namespace lewis::targets::x86_64 {
 
 namespace {
     void setRegister(Value *v, int registerIdx) {
-        if (auto phi = hierarchy_cast<PhiNode *>(v); phi) {
-            if (auto modeRArgument = hierarchy_cast<ModeRArgumentPhi *>(phi)) {
-                modeRArgument->modeRegister = registerIdx;
-            } else if (auto modeMDataFlow = hierarchy_cast<ModeMDataFlowPhi *>(phi)) {
-                modeMDataFlow->modeRegister = registerIdx;
-            } else {
-                assert(!"Unexpected x86_64 IR phi");
-            }
-        }
-
-        if (auto modeMResult = hierarchy_cast<ModeMValue *>(v); modeMResult) {
-            modeMResult->modeRegister = registerIdx;
+        if (auto modeMValue = hierarchy_cast<ModeMValue *>(v); modeMValue) {
+            modeMValue->modeRegister = registerIdx;
         } else {
             assert(!"Unexpected x86_64 IR value");
         }
@@ -197,28 +187,30 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
 
     // Generate LiveIntervals for phis.
     for (auto phi : bb->phis()) {
-        if (auto modeRArgument = hierarchy_cast<ModeRArgumentPhi *>(phi); modeRArgument) {
+        if (auto argument = hierarchy_cast<ArgumentPhi *>(phi); argument) {
             auto compound = new LiveCompound;
             compound->possibleRegisters = 0x80;
 
             auto nodeInterval = new LiveInterval;
             compound->intervals.push_back(nodeInterval);
-            nodeInterval->associatedValue = phi;
+            nodeInterval->associatedValue = phi->value.get();
             nodeInterval->compound = compound;
             nodeInterval->originPc = {bb, beforeBlock, nullptr, afterInstruction};
-            nodeInterval->finalPc = _determineFinalPc(bb, phi).value_or(nodeInterval->originPc);
+            auto maybeFinalPc = _determineFinalPc(bb, phi->value.get());
+            nodeInterval->finalPc = maybeFinalPc.value_or(nodeInterval->originPc);
 
             _queue.push(compound);
-        } else if (auto modeMDataFlow = hierarchy_cast<ModeMDataFlowPhi *>(phi); modeMDataFlow) {
+        } else if (auto dataFlow = hierarchy_cast<DataFlowPhi *>(phi); dataFlow) {
             auto compound = new LiveCompound;
             compound->possibleRegisters = 0xF;
 
             auto nodeInterval = new LiveInterval;
             compound->intervals.push_back(nodeInterval);
-            nodeInterval->associatedValue = phi;
+            nodeInterval->associatedValue = phi->value.get();
             nodeInterval->compound = compound;
             nodeInterval->originPc = {bb, beforeBlock, nullptr, afterInstruction};
-            nodeInterval->finalPc = _determineFinalPc(bb, phi).value_or(nodeInterval->originPc);
+            auto maybeFinalPc = _determineFinalPc(bb, phi->value.get());
+            nodeInterval->finalPc = maybeFinalPc.value_or(nodeInterval->originPc);
 
             for (auto edge : phi->edges()) {
                 auto aliasInterval = new LiveInterval;
@@ -332,6 +324,7 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             collected.push_back(copyCompound);
             collected.push_back(resultCompound);
         } else {
+            std::cout << "lewis: Unknown instruction kind " << (*it)->kind << std::endl;
             assert(!"Unexpected IR instruction");
         }
     }
@@ -375,19 +368,11 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
     // Find all intervals that originate from phis.
     _allocated.for_overlaps([&] (LiveInterval *interval) {
-        std::cout << "    Phi node " << interval->associatedValue << " is live" << std::endl;
+        std::cout << "    Value " << interval->associatedValue
+                << " (from phi node) is live" << std::endl;
         liveMap.insert({interval->associatedValue, interval});
+        setRegister(interval->associatedValue, interval->compound->allocatedRegister);
     }, {bb, beforeBlock, nullptr, afterInstruction});
-
-    for (auto phi : bb->phis()) {
-        if (auto modeRArgument = hierarchy_cast<ModeRArgumentPhi *>(phi); modeRArgument) {
-            auto interval = liveMap.at(phi);
-            modeRArgument->modeRegister = interval->compound->allocatedRegister;
-        } else if (auto modeMDataFlow = hierarchy_cast<ModeMDataFlowPhi *>(phi); modeMDataFlow) {
-            auto interval = liveMap.at(phi);
-            modeMDataFlow->modeRegister = interval->compound->allocatedRegister;
-        }
-    }
 
     for (auto it = bb->instructions().begin(); it != bb->instructions().end(); ) {
         std::cout << "    Fixing instruction " << *it << ", kind "
@@ -449,11 +434,8 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
         }
 
         // Fix the allocation for all results of the current instruction.
-        for (auto [value, interval] : resultMap) {
-            auto modeM = hierarchy_cast<ModeMValue *>(value);
-            assert(modeM);
-            modeM->modeRegister = interval->compound->allocatedRegister;
-        }
+        for (auto [value, interval] : resultMap)
+            setRegister(value, interval->compound->allocatedRegister);
 
         // Erase all intervals that end before the current instruction.
         // TODO: In principle, the loops to erase intervals can be accelerated by maintaining

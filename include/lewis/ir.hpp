@@ -109,7 +109,6 @@ using ValueKindType = uint32_t;
 namespace value_kinds {
     enum : ValueKindType {
         null,
-        phi,
         local,
 
         // Give each architecture 16k values; that should be enough.
@@ -290,10 +289,7 @@ namespace phi_kinds {
     enum : PhiKindType {
         null,
         argument,
-        dataFlow,
-
-        // Give each architecture 16k values; that should be enough.
-        kindsForX86 = 1 << 14
+        dataFlow
     };
 }
 
@@ -312,9 +308,7 @@ private:
     frg::default_list_hook<PhiEdge> _edgeListHook;
 };
 
-struct PhiNode
-: Value,
-        CastableIfValueKind<PhiNode, value_kinds::phi> {
+struct PhiNode {
     friend struct BasicBlock;
 
     using EdgeList = frg::intrusive_list<
@@ -344,7 +338,7 @@ struct PhiNode
     };
 
     PhiNode(PhiKindType phiKind_)
-    : Value{value_kinds::phi}, phiKind{phiKind_} { }
+    : phiKind{phiKind_} { }
 
     EdgeRange edges() {
         return EdgeRange{this};
@@ -356,7 +350,13 @@ struct PhiNode
         return ptr;
     }
 
+    template<typename... Args>
+    PhiEdge *attachNewEdge(Args &&... args) {
+        return attachEdge(std::make_unique<PhiEdge>(std::forward<Args>(args)...));
+    }
+
     const PhiKindType phiKind;
+    ValueOrigin value;
 
 private:
     frg::default_list_hook<PhiNode> _phiListHook;
