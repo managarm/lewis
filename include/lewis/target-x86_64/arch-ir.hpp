@@ -135,20 +135,10 @@ struct XchgMRInstruction
     : Instruction{arch_instruction_kinds::xchgMR},
         firstOperand{this, first}, secondOperand{this, second} { }
 
-    ModeMValue *firstResult() {
-        return &_firstResult;
-    }
-
-    ModeMValue *secondResult() {
-        return &_secondResult;
-    }
-
+    ValueOrigin firstResult;
+    ValueOrigin secondResult;
     ValueUse firstOperand;
     ValueUse secondOperand;
-
-private:
-    ModeMValue _firstResult;
-    ModeMValue _secondResult;
 };
 
 struct NegMInstruction

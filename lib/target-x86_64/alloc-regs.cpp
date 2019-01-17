@@ -579,9 +579,11 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 assert(chainInterval->associatedValue);
                 auto move = std::make_unique<XchgMRInstruction>(nextResult,
                         chainInterval->associatedValue);
-                move->firstResult()->modeRegister = nextRegister;
-                move->secondResult()->modeRegister = chainInterval->compound->allocatedRegister;
-                nextResult = move->secondResult();
+                auto firstResult = move->firstResult.setNew<ModeMValue>();
+                auto secondResult = move->secondResult.setNew<ModeMValue>();
+                setRegister(firstResult, nextRegister);
+                setRegister(secondResult, chainInterval->compound->allocatedRegister);
+                nextResult = secondResult;
                 nextRegister = chainInterval->compound->allocatedRegister;
                 bb->insertInstruction(std::move(move));
 
