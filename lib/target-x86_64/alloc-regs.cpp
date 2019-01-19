@@ -216,7 +216,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         } else if (auto unaryMInPlace = hierarchy_cast<UnaryMInPlaceInstruction *>(*it);
                 unaryMInPlace) {
             auto pseudoMove = bb->insertInstruction(it,
-                    std::make_unique<PseudoMovMRInstruction>(unaryMInPlace->primary.get()));
+                    std::make_unique<PseudoMoveSingleInstruction>(unaryMInPlace->primary.get()));
             auto pseudoMoveResult = pseudoMove->result.setNew<ModeMValue>();
             unaryMInPlace->primary = pseudoMoveResult;
 
@@ -239,7 +239,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         } else if (auto binaryMRInPlace = hierarchy_cast<BinaryMRInPlaceInstruction *>(*it);
                 binaryMRInPlace) {
             auto pseudoMove = bb->insertInstruction(it,
-                    std::make_unique<PseudoMovMRInstruction>(binaryMRInPlace->primary.get()));
+                    std::make_unique<PseudoMoveSingleInstruction>(binaryMRInPlace->primary.get()));
             auto pseudoMoveResult = pseudoMove->result.setNew<ModeMValue>();
             binaryMRInPlace->primary = pseudoMoveResult;
 
@@ -261,7 +261,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             collected.push_back(compound);
         } else if (auto call = hierarchy_cast<CallInstruction *>(*it); call) {
             auto pseudoMove = bb->insertInstruction(it,
-                    std::make_unique<PseudoMovMRInstruction>(call->operand.get()));
+                    std::make_unique<PseudoMoveSingleInstruction>(call->operand.get()));
             call->operand = pseudoMove->result.get();
 
             auto copyCompound = new LiveCompound;
@@ -296,10 +296,11 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         edges.push_back(edge);
 
     if (!edges.empty()) {
+        auto pseudoMove = bb->insertInstruction(
+                std::make_unique<PseudoMoveMultipleInstruction>(edges.size()));
         for (size_t i = 0; i < edges.size(); i++) {
-            auto pseudoMove = bb->insertInstruction(
-                    std::make_unique<PseudoMovMRInstruction>(edges[i]->alias.get()));
-            edges[i]->alias = pseudoMove->result.setNew<ModeMValue>();
+            pseudoMove->operand(i) = edges[i]->alias.get();
+            edges[i]->alias = pseudoMove->result(i).setNew<ModeMValue>();
         }
     }
 
@@ -403,6 +404,18 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
     for (auto it = bb->instructions().begin(); it != bb->instructions().end(); ) {
         std::cout << "    Fixing instruction " << *it << ", kind "
                 << (*it)->kind << std::endl;
+        // Determine the current register allocation.
+        LiveInterval *currentState[16] = {};
+
+        for (auto entry : liveMap) {
+            auto interval = entry.second;
+            auto currentRegister = interval->compound->allocatedRegister;
+            assert(currentRegister >= 0);
+            assert(!currentState[currentRegister]);
+            currentState[currentRegister] = interval;
+            std::cout << "    Current state[" << currentRegister << "]: "
+                    << interval->associatedValue << std::endl;
+        }
 
         // Find all intervals that originate from the current PC.
         _allocated.for_overlaps([&] (LiveInterval *interval) {
@@ -439,29 +452,143 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
         // Rewrite pseudo instructions to real instructions.
         bool rewroteInstruction = false;
-        if (auto pseudoMovMR = hierarchy_cast<PseudoMovMRInstruction *>(*it); pseudoMovMR) {
-            auto operandInterval = liveMap.at(pseudoMovMR->operand.get());
-            auto resultInterval = resultMap.at(pseudoMovMR->result.get());
+        if (auto pseudoMoveSingle = hierarchy_cast<PseudoMoveSingleInstruction *>(*it);
+                pseudoMoveSingle) {
+            auto operandInterval = liveMap.at(pseudoMoveSingle->operand.get());
+            auto resultInterval = resultMap.at(pseudoMoveSingle->result.get());
             if (operandInterval->compound->allocatedRegister
                     == resultInterval->compound->allocatedRegister) {
-                std::cout << "        Rewriting pseudoMovMR (fuse)" << std::endl;
-                pseudoMovMR->result.get()->replaceAllUses(pseudoMovMR->operand.get());
+                std::cout << "        Rewriting pseudoMoveSingle (fuse)" << std::endl;
+                pseudoMoveSingle->result.get()->replaceAllUses(pseudoMoveSingle->operand.get());
 
                 fuseResultInterval(resultInterval, operandInterval);
-                rewroteInstruction = true;
             }else{
-                std::cout << "        Rewriting pseudoMovMR (reassociate)" << std::endl;
-                auto movMR = std::make_unique<MovMRInstruction>(pseudoMovMR->operand.get());
+                std::cout << "        Rewriting pseudoMoveSingle (reassociate)" << std::endl;
+                auto movMR = std::make_unique<MovMRInstruction>(pseudoMoveSingle->operand.get());
                 auto movMRResult = movMR->result.setNew<ModeMValue>();
                 setRegister(movMRResult, resultInterval->compound->allocatedRegister);
 
-                pseudoMovMR->operand = nullptr;
-                pseudoMovMR->result.get()->replaceAllUses(movMRResult);
+                pseudoMoveSingle->operand = nullptr;
+                pseudoMoveSingle->result.get()->replaceAllUses(movMRResult);
 
                 reassociateResultInterval(resultInterval, movMRResult);
                 bb->insertInstruction(it, std::move(movMR));
-                rewroteInstruction = true;
             }
+            rewroteInstruction = true;
+        } else if (auto pseudoMoveMultiple = hierarchy_cast<PseudoMoveMultipleInstruction *>(*it);
+                pseudoMoveMultiple) {
+            // The following code minimizes the number of move instructions.
+            // This is done as follows:
+            // - The code constructs "move chains", i.e., chains of registers that need to be moved.
+            //   For example, such a chain could be rax -> rcx -> rdx.
+            // - If the chain is acyclic, the last move is emitted first as
+            //   the contents of that register are not used anymore.
+            //   Afterwards, the other moves are done in reverse order.
+            // - If a chain forms a cycle, an additional move is necessary.
+            std::cout << "        Rewriting pseudoMoveMultiple" << std::endl;
+
+            // Determine the head of each move chain.
+            struct MoveChain {
+                LiveInterval *lastInChain;
+                bool isCyclic = false;
+            };
+
+            std::vector<MoveChain> chainList;
+
+            for (size_t i = 0; i < pseudoMoveMultiple->arity(); ++i) {
+                auto operandInterval = liveMap.at(pseudoMoveMultiple->operand(i).get());
+                auto resultInterval = resultMap.at(pseudoMoveMultiple->result(i).get());
+                std::cout << "            Expanding move chain at "
+                        << resultInterval->associatedValue << std::endl;
+
+                // Special case self-loops in move chains (no move is necessary).
+                auto resultRegister = resultInterval->compound->allocatedRegister;
+                assert(resultRegister >= 0);
+                if (operandInterval->compound->allocatedRegister == resultRegister) {
+                    fuseResultInterval(resultInterval, operandInterval);
+                    continue;
+                }
+
+                // Follow the move chain starting at the current entry until it's end.
+                auto chainInterval = resultInterval;
+                while(true) {
+                    if (chainInterval->inMoveChain)
+                        break;
+                    chainInterval->inMoveChain = true;
+
+                    auto chainRegister = chainInterval->compound->allocatedRegister;
+                    assert(chainRegister >= 0);
+
+                    // Check if the value that is currently in the chainRegister has to be moved.
+                    auto srcInterval = currentState[chainRegister];
+                    if (!srcInterval) {
+                        chainList.push_back({chainInterval, false});
+                        break;
+                    }
+
+                    auto destIt = resultMap.find(srcInterval->associatedValue);
+                    if (destIt == resultMap.end()) {
+                        chainList.push_back({chainInterval, false});
+                        break;
+                    }
+
+                    auto destInterval = destIt->second;
+                    std::cout << destInterval->associatedValue << std::endl;
+                    std::cout << "                Move chain: " << srcInterval->associatedValue
+                            << " from " << chainRegister
+                            << " to " << destInterval->compound->allocatedRegister << std::endl;
+                    if (destInterval == resultInterval) {
+                        // We ran into a cycle.
+                        chainList.push_back({chainInterval, true});
+                        break;
+                    }
+
+                    // The current chainInterval was not visited before; thus, we can assert:
+                    assert(!destInterval->previousMoveInChain);
+                    destInterval->previousMoveInChain = chainInterval;
+                    chainInterval = destInterval;
+                }
+            }
+
+            // Actually emit the move chains.
+            for (const auto &moveChain : chainList) {
+                if (!moveChain.isCyclic) {
+                    // The move chain is a path.
+                    auto chainInterval = moveChain.lastInChain;
+                    do {
+                        assert(chainInterval->associatedValue);
+                        auto move = std::make_unique<MovMRInstruction>
+                                (chainInterval->associatedValue);
+                        auto moveResult = move->result.setNew<ModeMValue>();
+                        setRegister(moveResult, chainInterval->compound->allocatedRegister);
+                        bb->insertInstruction(it, std::move(move));
+
+                        // TODO: Reassociate intervals here.
+                        chainInterval = chainInterval->previousMoveInChain;
+                    } while (chainInterval);
+                } else {
+                    // The move chain is a cycle.
+                    auto nextResult = moveChain.lastInChain->associatedValue;
+                    auto nextRegister = moveChain.lastInChain->compound->allocatedRegister;
+                    auto chainInterval = moveChain.lastInChain->previousMoveInChain;
+                    do {
+                        assert(chainInterval->associatedValue);
+                        auto move = std::make_unique<XchgMRInstruction>(nextResult,
+                                chainInterval->associatedValue);
+                        auto firstResult = move->firstResult.setNew<ModeMValue>();
+                        auto secondResult = move->secondResult.setNew<ModeMValue>();
+                        setRegister(firstResult, nextRegister);
+                        setRegister(secondResult, chainInterval->compound->allocatedRegister);
+                        nextResult = secondResult;
+                        nextRegister = chainInterval->compound->allocatedRegister;
+                        bb->insertInstruction(it, std::move(move));
+
+                        // TODO: Reassociate intervals here.
+                        chainInterval = chainInterval->previousMoveInChain;
+                    } while (chainInterval);
+                }
+            }
+            rewroteInstruction = true;
         }
 
         // Fix the allocation for all results of the current instruction.
@@ -504,128 +631,6 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             bb->eraseInstruction(it);
         it = nextIt;
     }
-
-    // The following code emits moves to ensure that Values that are used in phis are in the
-    // correct register before a branch. It minimizes the number of move instructions.
-    // This is done as follows:
-    // - The code constructs "move chains", i.e., chains of registers that need to be moved.
-    //   For example, such a chain could be rax -> rcx -> rdx.
-    // - The last move is emitted first, as the contents of that register are not used anymore.
-    // - If a move chain forms a cycle, an additional move is necessary.
-
-    // First, determine the current register allocation.
-    LiveInterval *currentState[4] = {nullptr};
-
-    for (auto entry : liveMap) {
-        auto interval = entry.second;
-        auto compound = interval->compound;
-        assert(compound->allocatedRegister >= 0);
-        assert(!currentState[compound->allocatedRegister]);
-        currentState[compound->allocatedRegister] = interval;
-        std::cout << "    Current state[" << compound->allocatedRegister << "]: "
-                << interval->associatedValue << std::endl;
-    }
-
-    _allocated.for_overlaps([&] (LiveInterval *interval) {
-        resultMap.insert({interval->associatedValue, interval});
-    }, {bb, afterBlock, nullptr, afterInstruction});
-
-    // Determine the head of each move chain.
-    struct MoveChain {
-        LiveInterval *lastInChain;
-        bool isCyclic = false;
-    };
-    std::vector<MoveChain> chainList;
-    for (auto entry : resultMap) {
-        auto entryInterval = entry.second;
-        std::cout << "    Expanding move chain at "
-                << entryInterval->associatedValue << std::endl;
-
-        // Special case self-loops in move chains (no move is necessary).
-        auto entryRegister = entryInterval->compound->allocatedRegister;
-        assert(entryRegister >= 0);
-        if (currentState[entryRegister]
-                && currentState[entryRegister]->associatedValue == entryInterval->associatedValue)
-            continue;
-
-        // Follow the move chain starting at the current entry until it's end.
-        auto chainInterval = entryInterval;
-        while(true) {
-            if (chainInterval->inMoveChain)
-                break;
-            chainInterval->inMoveChain = true;
-
-            auto chainRegister = chainInterval->compound->allocatedRegister;
-            assert(chainRegister >= 0);
-
-            // Check if the value that is currently in the chainRegister has to be moved.
-            auto srcInterval = currentState[chainRegister];
-            if (!srcInterval) {
-                chainList.push_back({chainInterval, false});
-                break;
-            }
-
-            auto destIt = resultMap.find(srcInterval->associatedValue);
-            if (destIt == resultMap.end()) {
-                chainList.push_back({chainInterval, false});
-                break;
-            }
-
-            auto destInterval = destIt->second;
-            std::cout << destInterval->associatedValue << std::endl;
-            std::cout << "        Move chain: " << srcInterval->associatedValue
-                    << " from " << chainRegister
-                    << " to " << destInterval->compound->allocatedRegister << std::endl;
-            if (destInterval == entryInterval) {
-                // We ran into a cycle.
-                chainList.push_back({chainInterval, true});
-                break;
-            }
-
-            // The current chainInterval was not visited before; thus, we can assert:
-            assert(!destInterval->previousMoveInChain);
-            destInterval->previousMoveInChain = chainInterval;
-            chainInterval = destInterval;
-        }
-    }
-
-    // Actually emit the move chains.
-    for (const auto &moveChain : chainList) {
-        if (!moveChain.isCyclic) {
-            // The move chain is a path.
-            auto chainInterval = moveChain.lastInChain;
-            do {
-                assert(chainInterval->associatedValue);
-                auto move = std::make_unique<MovMRInstruction>(chainInterval->associatedValue);
-                auto moveResult = move->result.setNew<ModeMValue>();
-                setRegister(moveResult, chainInterval->compound->allocatedRegister);
-                bb->insertInstruction(std::move(move));
-
-                chainInterval = chainInterval->previousMoveInChain;
-            } while (chainInterval);
-        } else {
-            // The move chain is a cycle.
-            auto nextResult = moveChain.lastInChain->associatedValue;
-            auto nextRegister = moveChain.lastInChain->compound->allocatedRegister;
-            auto chainInterval = moveChain.lastInChain->previousMoveInChain;
-            do {
-                assert(chainInterval->associatedValue);
-                auto move = std::make_unique<XchgMRInstruction>(nextResult,
-                        chainInterval->associatedValue);
-                auto firstResult = move->firstResult.setNew<ModeMValue>();
-                auto secondResult = move->secondResult.setNew<ModeMValue>();
-                setRegister(firstResult, nextRegister);
-                setRegister(secondResult, chainInterval->compound->allocatedRegister);
-                nextResult = secondResult;
-                nextRegister = chainInterval->compound->allocatedRegister;
-                bb->insertInstruction(std::move(move));
-
-                chainInterval = chainInterval->previousMoveInChain;
-            } while (chainInterval);
-        }
-    }
-
-    // TODO: Fix the ValueUses in phi edges.
 }
 
 std::unique_ptr<AllocateRegistersPass> AllocateRegistersPass::create(Function *fn) {

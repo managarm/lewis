@@ -22,7 +22,8 @@ namespace arch_instruction_kinds {
     // C: Immediate constant.
     enum : InstructionKindType {
         unused = instruction_kinds::kindsForX86,
-        pseudoMovMR,
+        pseudoMoveSingle,
+        pseudoMoveMultiple,
         xchgMR,
         movMC,
         movMR,
@@ -57,7 +58,7 @@ struct ModeMValue
 struct UnaryMOverwriteInstruction
 : Instruction,
         CastableIfInstructionKind<UnaryMOverwriteInstruction,
-                arch_instruction_kinds::pseudoMovMR,
+                arch_instruction_kinds::pseudoMoveSingle,
                 arch_instruction_kinds::movMR,
                 arch_instruction_kinds::movRMWithOffset> {
     UnaryMOverwriteInstruction(InstructionKindType kind, Value *operand_ = nullptr)
@@ -92,11 +93,46 @@ struct BinaryMRInPlaceInstruction
     ValueUse secondary;
 };
 
-struct PseudoMovMRInstruction
+struct PseudoMoveSingleInstruction
 : UnaryMOverwriteInstruction,
-        CastableIfInstructionKind<PseudoMovMRInstruction, arch_instruction_kinds::pseudoMovMR> {
-    PseudoMovMRInstruction(Value *operand_ = nullptr)
-    : UnaryMOverwriteInstruction{arch_instruction_kinds::pseudoMovMR, operand_} { }
+        CastableIfInstructionKind<PseudoMoveSingleInstruction,
+                arch_instruction_kinds::pseudoMoveSingle> {
+    PseudoMoveSingleInstruction(Value *operand_ = nullptr)
+    : UnaryMOverwriteInstruction{arch_instruction_kinds::pseudoMoveSingle, operand_} { }
+};
+
+struct PseudoMoveMultipleInstruction
+: Instruction, CastableIfInstructionKind<PseudoMoveMultipleInstruction,
+            arch_instruction_kinds::pseudoMoveMultiple> {
+private:
+    struct MovePair {
+        MovePair(Instruction *inst)
+        : result{inst}, operand{inst} { }
+
+        ValueOrigin result;
+        ValueUse operand;
+    };
+
+public:
+    PseudoMoveMultipleInstruction(size_t arity)
+    : Instruction{arch_instruction_kinds::pseudoMoveMultiple} {
+        for(size_t i = 0; i < arity; i++)
+            _pairs.push_back(std::make_unique<MovePair>(this));
+    }
+
+    size_t arity() {
+        return _pairs.size();
+    }
+
+    ValueOrigin &result(size_t i) {
+        return _pairs[i]->result;
+    }
+    ValueUse &operand(size_t i) {
+        return _pairs[i]->operand;
+    }
+
+private:
+    std::vector<std::unique_ptr<MovePair>> _pairs;
 };
 
 // TODO: Turn this into a UnaryMOverwriteInstruction.
