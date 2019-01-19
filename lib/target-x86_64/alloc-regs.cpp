@@ -212,14 +212,16 @@ void AllocateRegistersImpl::_collectIntervals(BasicBlock *bb) {
             auto maybeFinalPc = _determineFinalPc(bb, phi->value.get());
             nodeInterval->finalPc = maybeFinalPc.value_or(nodeInterval->originPc);
 
-            for (auto edge : phi->edges()) {
+            for (auto edge : dataFlow->sink.edges()) {
                 auto aliasInterval = new LiveInterval;
                 assert(edge->alias);
                 compound->intervals.push_back(aliasInterval);
                 aliasInterval->associatedValue = edge->alias.get();
                 aliasInterval->compound = compound;
-                aliasInterval->originPc = {edge->source, afterBlock, nullptr, afterInstruction};
-                aliasInterval->finalPc = {edge->source, afterBlock, nullptr, afterInstruction};
+                aliasInterval->originPc = ProgramCounter{edge->source()->block(), afterBlock,
+                        nullptr, afterInstruction};
+                aliasInterval->finalPc = ProgramCounter{edge->source()->block(), afterBlock,
+                        nullptr, afterInstruction};
             }
 
             _queue.push(compound);

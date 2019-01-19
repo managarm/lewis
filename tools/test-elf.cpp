@@ -21,7 +21,9 @@ int main() {
     b0->setBranch(std::make_unique<lewis::UnconditionalBranch>(b1));
 
     auto p1 = b1->attachPhi(std::make_unique<lewis::DataFlowPhi>());
-    p1->attachNewEdge(b0, v1);
+    auto e1 = lewis::DataFlowEdge::attach(std::make_unique<lewis::DataFlowEdge>(),
+            b0->source, p1->sink);
+    e1->alias = v1;
     auto v2 = p1->value.setNew<lewis::LocalValue>();
     auto i2 = b1->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
             lewis::UnaryMathOpcode::negate, v2));

@@ -31,4 +31,14 @@ void Value::replaceAllUses(Value *other) {
     }
 }
 
+void DataFlowEdge::doAttach(std::unique_ptr<DataFlowEdge> edge,
+        DataFlowSource &source, DataFlowSink &sink) {
+    assert(!edge->_source && !edge->_sink);
+    edge->_source = &source;
+    edge->_sink = &sink;
+    source._edges.push_back(edge.get());
+    sink._edges.push_back(edge.get());
+    edge.release();
+}
+
 } // namespace lewis

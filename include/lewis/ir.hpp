@@ -17,6 +17,8 @@ namespace lewis {
 
 struct Value;
 struct Instruction;
+struct DataFlowSource;
+struct DataFlowSink;
 struct BasicBlock;
 
 //---------------------------------------------------------------------------------------
@@ -279,6 +281,122 @@ struct UnconditionalBranch
 };
 
 //---------------------------------------------------------------------------------------
+// Data-flow related classes.
+//---------------------------------------------------------------------------------------
+
+struct DataFlowEdge {
+    friend struct DataFlowSource;
+    friend struct DataFlowSink;
+
+    static void doAttach(std::unique_ptr<DataFlowEdge> edge,
+            DataFlowSource &source, DataFlowSink &sink);
+
+    static DataFlowEdge *attach(std::unique_ptr<DataFlowEdge> edge,
+            DataFlowSource &source, DataFlowSink &sink) {
+        auto ptr = edge.get();
+        doAttach(std::move(edge), source, sink);
+        return ptr;
+    }
+
+    // TODO: Do not pass nullptr as an Instruction to the ValueUse.
+    DataFlowEdge()
+    : alias{nullptr}, _source{nullptr}, _sink{nullptr} { }
+
+    DataFlowSource *source() const { return _source; }
+    DataFlowSink *sink() const { return _sink; }
+
+    ValueUse alias;
+
+private:
+    DataFlowSource *_source;
+    DataFlowSink *_sink;
+    frg::default_list_hook<DataFlowEdge> _sourceListHook;
+    frg::default_list_hook<DataFlowEdge> _sinkListHook;
+};
+
+struct DataFlowSource {
+    friend struct DataFlowEdge;
+
+    using EdgeList = frg::intrusive_list<
+        DataFlowEdge,
+        frg::locate_member<
+            DataFlowEdge,
+            frg::default_list_hook<DataFlowEdge>,
+            &DataFlowEdge::_sourceListHook
+        >
+    >;
+
+    using EdgeIterator = EdgeList::iterator;
+
+    struct EdgeRange {
+        EdgeRange(DataFlowSource *source)
+        : _source{source} { }
+
+        EdgeIterator begin() {
+            return _source->_edges.begin();
+        }
+        EdgeIterator end() {
+            return _source->_edges.end();
+        }
+
+    private:
+        DataFlowSource *_source;
+    };
+
+    DataFlowSource(BasicBlock *bb)
+    : _bb{bb} { }
+
+    BasicBlock *block() {
+        return _bb;
+    }
+
+    EdgeRange edges() {
+        return EdgeRange{this};
+    }
+
+private:
+    BasicBlock *_bb;
+    EdgeList _edges;
+};
+
+struct DataFlowSink {
+    friend struct DataFlowEdge;
+
+    using EdgeList = frg::intrusive_list<
+        DataFlowEdge,
+        frg::locate_member<
+            DataFlowEdge,
+            frg::default_list_hook<DataFlowEdge>,
+            &DataFlowEdge::_sinkListHook
+        >
+    >;
+
+    using EdgeIterator = EdgeList::iterator;
+
+    struct EdgeRange {
+        EdgeRange(DataFlowSink *sink)
+        : _sink{sink} { }
+
+        EdgeIterator begin() {
+            return _sink->_edges.begin();
+        }
+        EdgeIterator end() {
+            return _sink->_edges.end();
+        }
+
+    private:
+        DataFlowSink *_sink;
+    };
+
+    EdgeRange edges() {
+        return EdgeRange{this};
+    }
+
+private:
+    EdgeList _edges;
+};
+
+//---------------------------------------------------------------------------------------
 // BasicBlock class and Phi classes.
 //---------------------------------------------------------------------------------------
 
@@ -293,75 +411,17 @@ namespace phi_kinds {
     };
 }
 
-struct PhiEdge {
-    friend struct PhiNode;
-
-    // TODO: Do not pass nullptr as an Instruction to the ValueUse.
-    PhiEdge(BasicBlock *source_ = nullptr, Value *alias_ = nullptr)
-    : source{source_}, alias{nullptr, alias_} { }
-
-    // TODO: Use a BlockBacklink class.
-    BasicBlock *source;
-    ValueUse alias;
-
-private:
-    frg::default_list_hook<PhiEdge> _edgeListHook;
-};
-
 struct PhiNode {
     friend struct BasicBlock;
 
-    using EdgeList = frg::intrusive_list<
-        PhiEdge,
-        frg::locate_member<
-            PhiEdge,
-            frg::default_list_hook<PhiEdge>,
-            &PhiEdge::_edgeListHook
-        >
-    >;
-
-    using EdgeIterator = EdgeList::iterator;
-
-    struct EdgeRange {
-        EdgeRange(PhiNode *node)
-        : _node{node} { }
-
-        EdgeIterator begin() {
-            return _node->_edges.begin();
-        }
-        EdgeIterator end() {
-            return _node->_edges.end();
-        }
-
-    private:
-        PhiNode *_node;
-    };
-
     PhiNode(PhiKindType phiKind_)
     : phiKind{phiKind_} { }
-
-    EdgeRange edges() {
-        return EdgeRange{this};
-    }
-
-    PhiEdge *attachEdge(std::unique_ptr<PhiEdge> edge) {
-        auto ptr = edge.get();
-        _edges.push_back(edge.release());
-        return ptr;
-    }
-
-    template<typename... Args>
-    PhiEdge *attachNewEdge(Args &&... args) {
-        return attachEdge(std::make_unique<PhiEdge>(std::forward<Args>(args)...));
-    }
 
     const PhiKindType phiKind;
     ValueOrigin value;
 
 private:
     frg::default_list_hook<PhiNode> _phiListHook;
-
-    EdgeList _edges;
 };
 
 // Template magic to enable hierarchy_cast<>.
@@ -384,6 +444,8 @@ struct ArgumentPhi : PhiNode, CastableIfPhiKind<ArgumentPhi, phi_kinds::argument
 struct DataFlowPhi : PhiNode, CastableIfPhiKind<DataFlowPhi, phi_kinds::dataFlow> {
     DataFlowPhi()
     : PhiNode{phi_kinds::dataFlow} { }
+
+    DataFlowSink sink;
 };
 
 struct BasicBlock {
@@ -482,11 +544,15 @@ struct BasicBlock {
         BasicBlock *_bb;
     };
 
+    BasicBlock()
+    : source{this} { }
+
     PhiRange phis() {
         return PhiRange{this};
     }
 
-    PhiNode *attachPhi(std::unique_ptr<PhiNode> phi) {
+    template<typename T>
+    T *attachPhi(std::unique_ptr<T> phi) {
         auto ptr = phi.get();
         _phis.push_back(phi.release());
         return ptr;
@@ -592,6 +658,8 @@ struct BasicBlock {
     Branch *branch() {
         return _branch.get();
     }
+
+    DataFlowSource source;
 
 private:
     frg::default_list_hook<BasicBlock> _blockListHook;
