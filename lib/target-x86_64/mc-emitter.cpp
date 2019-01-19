@@ -86,8 +86,8 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
         } else if (auto movRMWithOffset = hierarchy_cast<MovRMWithOffsetInstruction *>(inst);
                 movRMWithOffset) {
             encode8(text, 0x8B);
-            encodeModeWithDisp(text, movRMWithOffset->result.get(), movRMWithOffset->offset,
-                    movRMWithOffset->operand.get());
+            encodeModeWithDisp(text, movRMWithOffset->operand.get(), movRMWithOffset->offset,
+                    movRMWithOffset->result.get());
         } else if (auto xchgMR = hierarchy_cast<XchgMRInstruction *>(inst); xchgMR) {
             encode8(text, 0x87);
             encodeMode(text, xchgMR->firstResult.get(), xchgMR->secondResult.get());
