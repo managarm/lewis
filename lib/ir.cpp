@@ -7,7 +7,10 @@
 namespace lewis {
 
 void ValueOrigin::doSet(std::unique_ptr<Value> v) {
-    _value = v.release();
+    assert(!v->_origin);
+    v->_origin = this;
+    _value = v.get();
+    v.release();
 }
 
 void ValueUse::assign(Value *v) {

@@ -125,6 +125,7 @@ namespace value_kinds {
 
 struct Value {
     friend struct ValueUse;
+    friend struct ValueOrigin;
 
     using UseList = frg::intrusive_list<
         ValueUse,
@@ -149,7 +150,11 @@ struct Value {
     using UseIterator = UseList::iterator;
 
     Value(ValueKindType valueKind_)
-    : valueKind{valueKind_} { }
+    : valueKind{valueKind_}, _origin{nullptr} { }
+
+    ValueOrigin *origin() {
+        return _origin;
+    }
 
     UseRange uses() {
         return UseRange{this};
@@ -160,6 +165,7 @@ struct Value {
     const ValueKindType valueKind;
 
 private:
+    ValueOrigin *_origin;
     // Linked list of all uses of this Value.
     UseList _useList;
 };
