@@ -61,7 +61,7 @@ struct UnaryMOverwriteInstruction
                 arch_instruction_kinds::movMR,
                 arch_instruction_kinds::movRMWithOffset> {
     UnaryMOverwriteInstruction(InstructionKindType kind, Value *operand_ = nullptr)
-    : Instruction{kind}, operand{this, operand_} { }
+    : Instruction{kind}, result{this}, operand{this, operand_} { }
 
     ValueOrigin result;
     ValueUse operand;
@@ -72,7 +72,7 @@ struct UnaryMInPlaceInstruction
 : Instruction,
         CastableIfInstructionKind<UnaryMInPlaceInstruction, arch_instruction_kinds::negM> {
     UnaryMInPlaceInstruction(InstructionKindType kind, Value *primary_ = nullptr)
-    : Instruction{kind}, primary{this, primary_} { }
+    : Instruction{kind}, result{this}, primary{this, primary_} { }
 
     ValueOrigin result;
     ValueUse primary;
@@ -84,7 +84,8 @@ struct BinaryMRInPlaceInstruction
         arch_instruction_kinds::andMR> {
     BinaryMRInPlaceInstruction(InstructionKindType kind,
             Value *primary_ = nullptr, Value *secondary_ = nullptr)
-    : Instruction{kind}, primary{this, primary_}, secondary{this, secondary_} { }
+    : Instruction{kind}, result{this},
+            primary{this, primary_}, secondary{this, secondary_} { }
 
     ValueOrigin result;
     ValueUse primary;
@@ -103,7 +104,7 @@ struct MovMCInstruction
 : Instruction,
         CastableIfInstructionKind<MovMCInstruction, arch_instruction_kinds::movMC> {
     MovMCInstruction()
-    : Instruction{arch_instruction_kinds::movMC} { }
+    : Instruction{arch_instruction_kinds::movMC}, result{this} { }
 
     ValueOrigin result;
     uint64_t value = 0;
@@ -132,7 +133,7 @@ struct XchgMRInstruction
         CastableIfInstructionKind<XchgMRInstruction, arch_instruction_kinds::xchgMR>{
 
     XchgMRInstruction(Value *first = nullptr, Value *second = nullptr)
-    : Instruction{arch_instruction_kinds::xchgMR},
+    : Instruction{arch_instruction_kinds::xchgMR}, firstResult{this}, secondResult{this},
         firstOperand{this, first}, secondOperand{this, second} { }
 
     ValueOrigin firstResult;
@@ -166,7 +167,7 @@ struct CallInstruction
 : Instruction,
         CastableIfInstructionKind<CallInstruction, arch_instruction_kinds::call> {
     CallInstruction(Value *operand_ = nullptr)
-    : Instruction{arch_instruction_kinds::call}, operand{this, operand_} { }
+    : Instruction{arch_instruction_kinds::call}, result{this}, operand{this, operand_} { }
 
     std::string function;
     ValueOrigin result;

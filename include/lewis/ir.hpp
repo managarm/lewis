@@ -28,8 +28,12 @@ struct BasicBlock;
 struct ValueOrigin {
     friend struct Value;
 
-    ValueOrigin()
-    : _value{nullptr} { }
+    ValueOrigin(Instruction *inst)
+    : _inst{inst}, _value{nullptr} { }
+
+    Instruction *instruction() {
+        return _inst;
+    }
 
     Value *get() {
         return _value;
@@ -50,6 +54,7 @@ struct ValueOrigin {
     }
 
 private:
+    Instruction *_inst;
     Value *_value;
 };
 
@@ -415,7 +420,7 @@ struct PhiNode {
     friend struct BasicBlock;
 
     PhiNode(PhiKindType phiKind_)
-    : phiKind{phiKind_} { }
+    : phiKind{phiKind_}, value{nullptr} { }
 
     const PhiKindType phiKind;
     ValueOrigin value;
@@ -734,7 +739,8 @@ struct LoadConstInstruction
 : Instruction,
         CastableIfInstructionKind<LoadConstInstruction, instruction_kinds::loadConst> {
     LoadConstInstruction(uint64_t value_ = 0)
-    : Instruction{instruction_kinds::loadConst}, value{value_} { }
+    : Instruction{instruction_kinds::loadConst}, result{this},
+            value{value_} { }
 
     ValueOrigin result;
     // TODO: This value should probably be more generic. For now, uint64_t is sufficient though.
@@ -747,7 +753,8 @@ struct LoadOffsetInstruction
 : Instruction,
         CastableIfInstructionKind<LoadOffsetInstruction, instruction_kinds::loadOffset> {
     LoadOffsetInstruction(Value *operand_ = nullptr, int64_t offset_ = 0)
-    : Instruction{instruction_kinds::loadOffset}, operand{this, operand_}, offset{offset_} { }
+    : Instruction{instruction_kinds::loadOffset}, result{this},
+            operand{this, operand_}, offset{offset_} { }
 
     ValueOrigin result;
     ValueUse operand;
@@ -764,7 +771,8 @@ struct UnaryMathInstruction
         CastableIfInstructionKind<UnaryMathInstruction, instruction_kinds::unaryMath> {
     UnaryMathInstruction(UnaryMathOpcode opcode_ = UnaryMathOpcode::null,
             Value *operand_ = nullptr)
-    : Instruction{instruction_kinds::unaryMath}, opcode{opcode_}, operand{this, operand_} { }
+    : Instruction{instruction_kinds::unaryMath}, opcode{opcode_}, result{this},
+            operand{this, operand_} { }
 
     UnaryMathOpcode opcode;
     ValueOrigin result;
@@ -782,7 +790,7 @@ struct BinaryMathInstruction
         CastableIfInstructionKind<BinaryMathInstruction, instruction_kinds::binaryMath> {
     BinaryMathInstruction(BinaryMathOpcode opcode_ = BinaryMathOpcode::null,
             Value *left_ = nullptr, Value *right_ = nullptr)
-    : Instruction{instruction_kinds::binaryMath}, opcode{opcode_},
+    : Instruction{instruction_kinds::binaryMath}, opcode{opcode_}, result{this},
             left{this, left_}, right{this, right_} { }
 
     BinaryMathOpcode opcode;
@@ -795,7 +803,7 @@ struct InvokeInstruction
 : Instruction,
         CastableIfInstructionKind<InvokeInstruction, instruction_kinds::invoke> {
     InvokeInstruction(std::string function, Value *operand_ = nullptr)
-    : Instruction{instruction_kinds::invoke}, function{std::move(function)},
+    : Instruction{instruction_kinds::invoke}, function{std::move(function)}, result{this},
             operand{this, operand_} { }
 
     std::string function;
