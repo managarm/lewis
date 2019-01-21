@@ -11,24 +11,35 @@
 int main() {
     lewis::Function f0;
     auto b0 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
-    auto b1 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
+    auto arg0 = b0->attachPhi(std::make_unique<lewis::ArgumentPhi>());
+    auto v0 = arg0->value.setNew<lewis::LocalValue>();
 
-    auto p0 = b0->attachPhi(std::make_unique<lewis::ArgumentPhi>());
-    auto v0 = p0->value.setNew<lewis::LocalValue>();
-    auto i1 = b0->insertInstruction(std::make_unique<lewis::LoadOffsetInstruction>(
-            v0, 4));
+    auto i1 = b0->insertNewInstruction<lewis::LoadOffsetInstruction>(v0, 0);
     auto v1 = i1->result.setNew<lewis::LocalValue>();
-    b0->setBranch(std::make_unique<lewis::UnconditionalBranch>(b1));
 
-    auto p1 = b1->attachPhi(std::make_unique<lewis::DataFlowPhi>());
-    auto e1 = lewis::DataFlowEdge::attach(std::make_unique<lewis::DataFlowEdge>(),
-            b0->source, p1->sink);
-    e1->alias = v1;
-    auto v2 = p1->value.setNew<lewis::LocalValue>();
-    auto i2 = b1->insertInstruction(std::make_unique<lewis::UnaryMathInstruction>(
-            lewis::UnaryMathOpcode::negate, v2));
-    i2->result.setNew<lewis::LocalValue>();
-    b1->setBranch(std::make_unique<lewis::FunctionReturnBranch>());
+    auto i2 = b0->insertNewInstruction<lewis::LoadOffsetInstruction>(v0, 8);
+    auto v2 = i2->result.setNew<lewis::LocalValue>();
+
+    auto i3 = b0->insertNewInstruction<lewis::LoadConstInstruction>(4);
+    auto v3 = i3->result.setNew<lewis::LocalValue>();
+
+    auto i4 = b0->insertNewInstruction<lewis::BinaryMathInstruction>(
+            lewis::BinaryMathOpcode::add, v2, v3);
+    auto v4 = i4->result.setNew<lewis::LocalValue>();
+
+    auto i5 = b0->insertNewInstruction<lewis::InvokeInstruction>("__mmio_read32", 2);
+    i5->operand(0) = v1;
+    i5->operand(1) = v4;
+    auto v5 = i5->result.setNew<lewis::LocalValue>();
+
+    auto i6 = b0->insertNewInstruction<lewis::LoadConstInstruction>(23);
+    auto v6 = i6->result.setNew<lewis::LocalValue>();
+
+    auto i7 = b0->insertNewInstruction<lewis::BinaryMathInstruction>(
+            lewis::BinaryMathOpcode::bitwiseAnd, v5, v6);
+    auto v7 = i7->result.setNew<lewis::LocalValue>();
+
+    b0->setBranch(std::make_unique<lewis::FunctionReturnBranch>());
 
     for (auto bb : f0.blocks()) {
         auto lo = lewis::targets::x86_64::LowerCodePass::create(bb);

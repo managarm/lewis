@@ -631,18 +631,23 @@ struct BasicBlock {
         _insts.insert(before._inst, inst.release());
     }
 
-    template<typename I>
-    I *insertInstruction(std::unique_ptr<I> inst) {
+    template<typename T>
+    T *insertInstruction(std::unique_ptr<T> inst) {
         auto ptr = inst.get();
         doInsertInstruction(std::move(inst));
         return ptr;
     }
 
-    template<typename I>
-    I *insertInstruction(InstructionIterator it, std::unique_ptr<I> inst) {
+    template<typename T>
+    T *insertInstruction(InstructionIterator it, std::unique_ptr<T> inst) {
         auto ptr = inst.get();
         doInsertInstruction(it, std::move(inst));
         return ptr;
+    }
+
+    template<typename T, typename... Args>
+    T *insertNewInstruction(Args &&... args) {
+        return insertInstruction(std::make_unique<T>(std::forward<Args>(args)...));
     }
 
     void eraseInstruction(InstructionIterator it) {
@@ -808,13 +813,21 @@ struct BinaryMathInstruction
 struct InvokeInstruction
 : Instruction,
         CastableIfInstructionKind<InvokeInstruction, instruction_kinds::invoke> {
-    InvokeInstruction(std::string function, Value *operand_ = nullptr)
-    : Instruction{instruction_kinds::invoke}, function{std::move(function)}, result{this},
-            operand{this, operand_} { }
+    InvokeInstruction(std::string function, size_t numOperands_)
+    : Instruction{instruction_kinds::invoke}, function{std::move(function)}, result{this} {
+        for (size_t i = 0; i < numOperands_; i++)
+            _operands.push_back(std::make_unique<ValueUse>(this));
+    }
 
     std::string function;
     ValueOrigin result;
-    ValueUse operand;
+
+    size_t numOperands() { return _operands.size(); }
+    ValueUse &operand(size_t i) { return *_operands[i]; }
+
+private:
+    // TODO: This can be done without another indirection.
+    std::vector<std::unique_ptr<ValueUse>> _operands;
 };
 
 } // namespace lewis

@@ -132,6 +132,7 @@ public:
     }
 
 private:
+    // TODO: This can be done without another indirection.
     std::vector<std::unique_ptr<MovePair>> _pairs;
 };
 
@@ -202,12 +203,21 @@ struct AndMRInstruction
 struct CallInstruction
 : Instruction,
         CastableIfInstructionKind<CallInstruction, arch_instruction_kinds::call> {
-    CallInstruction(Value *operand_ = nullptr)
-    : Instruction{arch_instruction_kinds::call}, result{this}, operand{this, operand_} { }
+    CallInstruction(size_t numOperands_)
+    : Instruction{arch_instruction_kinds::call}, result{this} {
+        for (size_t i = 0; i < numOperands_; i++)
+            _operands.push_back(std::make_unique<ValueUse>(this));
+    }
 
     std::string function;
     ValueOrigin result;
-    ValueUse operand;
+
+    size_t numOperands() { return _operands.size(); }
+    ValueUse &operand(size_t i) { return *_operands[i]; }
+
+private:
+    // TODO: This can be done without another indirection.
+    std::vector<std::unique_ptr<ValueUse>> _operands;
 };
 
 struct RetBranch

@@ -199,6 +199,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             interval->associatedValue = movMC->result.get();
             interval->compound = compound;
             interval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
+            assert(interval->associatedValue);
 
             collected.push_back(compound);
         } else if (auto unaryMOverwrite = hierarchy_cast<UnaryMOverwriteInstruction *>(*it);
@@ -211,6 +212,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             resultInterval->associatedValue = unaryMOverwrite->result.get();
             resultInterval->compound = compound;
             resultInterval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
+            assert(resultInterval->associatedValue);
 
             collected.push_back(compound);
         } else if (auto unaryMInPlace = hierarchy_cast<UnaryMInPlaceInstruction *>(*it);
@@ -234,6 +236,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             resultInterval->associatedValue = unaryMInPlace->result.get();
             resultInterval->compound = compound;
             resultInterval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
+            assert(resultInterval->associatedValue);
 
             collected.push_back(compound);
         } else if (auto binaryMRInPlace = hierarchy_cast<BinaryMRInPlaceInstruction *>(*it);
@@ -257,22 +260,35 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             resultInterval->associatedValue = binaryMRInPlace->result.get();
             resultInterval->compound = compound;
             resultInterval->originPc = {bb, inBlock, *it, afterInstruction};
+            assert(resultInterval->associatedValue);
 
             collected.push_back(compound);
         } else if (auto call = hierarchy_cast<CallInstruction *>(*it); call) {
+            // Add a PseudoMove instruction for the operands.
             auto pseudoMove = bb->insertInstruction(it,
-                    std::make_unique<PseudoMoveSingleInstruction>(call->operand.get()));
-            call->operand = pseudoMove->result.get();
+                    std::make_unique<PseudoMoveMultipleInstruction>(call->numOperands()));
+            for (size_t i = 0; i < call->numOperands(); ++i) {
+                pseudoMove->operand(i) = call->operand(i).get();
+                auto pseudoMoveResult = pseudoMove->result(i).setNew<ModeMValue>();
+                call->operand(i) = pseudoMoveResult;
 
-            auto copyCompound = new LiveCompound;
-            copyCompound->possibleRegisters = 0x80;
+                auto copyCompound = new LiveCompound;
+                switch (i) {
+                case 0: copyCompound->possibleRegisters = 0x80; break;
+                case 1: copyCompound->possibleRegisters = 0x40; break;
+                default: assert(!"TODO: Implement correct ABI for arbitrary arguments");
+                }
 
-            auto copyInterval = new LiveInterval;
-            copyCompound->intervals.push_back(copyInterval);
-            copyInterval->associatedValue = pseudoMove->result.get();
-            copyInterval->compound = copyCompound;
-            copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
+                auto copyInterval = new LiveInterval;
+                copyCompound->intervals.push_back(copyInterval);
+                copyInterval->associatedValue = pseudoMoveResult;
+                copyInterval->compound = copyCompound;
+                copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
 
+                collected.push_back(copyCompound);
+            }
+
+            // Add LiveIntervals for the results.
             auto resultCompound = new LiveCompound;
             resultCompound->possibleRegisters = 0x1;
 
@@ -281,8 +297,8 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             resultInterval->associatedValue = call->result.get();
             resultInterval->compound = resultCompound;
             resultInterval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
+            assert(resultInterval->associatedValue);
 
-            collected.push_back(copyCompound);
             collected.push_back(resultCompound);
         } else {
             std::cout << "lewis: Unknown instruction kind " << (*it)->kind << std::endl;
@@ -308,6 +324,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
     for (auto compound : collected) {
         for (auto interval : compound->intervals) {
             // Compute the final PC for each interval.
+            assert(interval->associatedValue);
             auto maybeFinalPc = _determineFinalPc(bb, interval->associatedValue);
             interval->finalPc = maybeFinalPc.value_or(interval->originPc);
         }
@@ -328,6 +345,7 @@ void AllocateRegistersImpl::_collectPhiIntervals(BasicBlock *bb) {
             nodeInterval->associatedValue = phi->value.get();
             nodeInterval->compound = compound;
             nodeInterval->originPc = {bb, beforeBlock, nullptr, afterInstruction};
+            assert(nodeInterval->associatedValue);
             auto maybeFinalPc = _determineFinalPc(bb, phi->value.get());
             nodeInterval->finalPc = maybeFinalPc.value_or(nodeInterval->originPc);
 
@@ -341,6 +359,7 @@ void AllocateRegistersImpl::_collectPhiIntervals(BasicBlock *bb) {
             nodeInterval->associatedValue = phi->value.get();
             nodeInterval->compound = compound;
             nodeInterval->originPc = {bb, beforeBlock, nullptr, afterInstruction};
+            assert(nodeInterval->associatedValue);
             auto maybeFinalPc = _determineFinalPc(bb, phi->value.get());
             nodeInterval->finalPc = maybeFinalPc.value_or(nodeInterval->originPc);
 
@@ -352,6 +371,7 @@ void AllocateRegistersImpl::_collectPhiIntervals(BasicBlock *bb) {
                 compound->intervals.push_back(sourceInterval);
                 sourceInterval->associatedValue = edge->alias.get();
                 sourceInterval->compound = compound;
+                assert(sourceInterval->associatedValue);
                 sourceInterval->originPc = ProgramCounter{edge->source()->block(), inBlock,
                         edge->alias.get()->origin()->instruction(), afterInstruction};
                 sourceInterval->finalPc = ProgramCounter{edge->source()->block(), afterBlock,
