@@ -494,6 +494,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 reassociateResultInterval(resultInterval, movMRResult);
                 bb->insertInstruction(it, std::move(movMR));
             }
+
             rewroteInstruction = true;
         } else if (auto pseudoMoveMultiple = hierarchy_cast<PseudoMoveMultipleInstruction *>(*it);
                 pseudoMoveMultiple) {
@@ -501,113 +502,218 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             // This is done as follows:
             // - The code constructs "move chains", i.e., chains of registers that need to be moved.
             //   For example, such a chain could be rax -> rcx -> rdx.
-            // - If the chain is acyclic, the last move is emitted first as
-            //   the contents of that register are not used anymore.
-            //   Afterwards, the other moves are done in reverse order.
-            // - If a chain forms a cycle, an additional move is necessary.
+            // - The resulting graph only consists of paths and cycles
+            //   (as every register has in-degree at most 1).
+            // - Emit those paths in cycles.
             std::cout << "        Rewriting pseudoMoveMultiple" << std::endl;
 
-            // Determine the head of each move chain.
+            // Represents a node of the move chain graph.
             struct MoveChain {
-                LiveInterval *lastInChain;
-                bool isCyclic = false;
+                // ----------------------------------------------------------------------
+                // Members defined for all MoveChains.
+                // ----------------------------------------------------------------------
+
+                bool isTail() {
+                    if(!isTarget())
+                        return false;
+                    if(isSource() && pendingMovesFromThisSource)
+                        return false;
+                    return true;
+                }
+
+                bool seenInTraversal = false;
+                bool traversalFinished = false;
+
+                MoveChain *cyclePointer = nullptr;
+
+                // ----------------------------------------------------------------------
+                // Members defined for move *sources*.
+                // ----------------------------------------------------------------------
+
+                bool isSource() {
+                    return firstTarget;
+                }
+
+                // Index of the corresponding PseudoMoveMultiple operand.
+                int operandIndex = -1;
+
+                // First chain that has this chain as uniqueSource.
+                // TODO: Do we actually need this linked list?
+                MoveChain *firstTarget = nullptr;
+
+                // Number of non-emitted moves until this tail becomes active.
+                int pendingMovesFromThisSource = 0;
+
+                // ----------------------------------------------------------------------
+                // Members defined for move *targets*.
+                // ----------------------------------------------------------------------
+
+                bool isTarget() {
+                    return uniqueSource;
+                }
+
+                // Index of the corresponding PseudoMoveMultiple result.
+                // TODO: Do we actually need this index?
+                int resultIndex = -1;
+
+                MoveChain *uniqueSource = nullptr;
+
+                // Next chain that shares the same uniqueSource.
+                MoveChain *siblingTarget = nullptr;
+
+                bool didMoveToThisTarget = false;
+
+                // ----------------------------------------------------------------------
+                // Members defined for cycle representatives (pointed to by cyclePointer).
+                // ----------------------------------------------------------------------
+
+                // Number of non-emitted moves until this cycle becomes active.
+                int pendingMovesFromThisCycle = 0;
             };
 
-            std::vector<MoveChain> chainList;
+            MoveChain chains[16];
 
+            auto chainRegister = [&] (MoveChain *chain) -> int {
+                return chain - chains;
+            };
+
+            // Build the MoveChains from the PseudoMoveMultiple instruction.
             for (size_t i = 0; i < pseudoMoveMultiple->arity(); ++i) {
                 auto operandInterval = liveMap.at(pseudoMoveMultiple->operand(i).get());
                 auto resultInterval = resultMap.at(pseudoMoveMultiple->result(i).get());
-                std::cout << "            Expanding move chain at "
-                        << resultInterval->associatedValue << std::endl;
 
                 // Special case self-loops in move chains (no move is necessary).
+                auto operandRegister = operandInterval->compound->allocatedRegister;
                 auto resultRegister = resultInterval->compound->allocatedRegister;
+                assert(operandRegister >= 0);
                 assert(resultRegister >= 0);
-                if (operandInterval->compound->allocatedRegister == resultRegister) {
+                if (operandRegister == resultRegister) {
                     fuseResultInterval(resultInterval, operandInterval);
                     continue;
                 }
 
-                // Follow the move chain starting at the current entry until it's end.
-                auto chainInterval = resultInterval;
-                while(true) {
-                    if (chainInterval->inMoveChain)
+                // Setup the MoveChain structs.
+                auto operandChain = &chains[operandRegister];
+                auto resultChain = &chains[resultRegister];
+
+                operandChain->resultIndex = i;
+                resultChain->operandIndex = i;
+
+                assert(!resultChain->uniqueSource);
+                assert(!resultChain->siblingTarget);
+                resultChain->uniqueSource = operandChain;
+                resultChain->siblingTarget = operandChain->firstTarget;
+
+                operandChain->firstTarget = resultChain;
+                operandChain->pendingMovesFromThisSource++;
+            }
+
+            std::vector<MoveChain *> activeTails;
+            std::vector<MoveChain *> activeCycles;
+
+            // Helper function to emit a single move of a move chain.
+            auto emitMoveToChain = [&] (MoveChain *targetChain) {
+                auto index = targetChain->operandIndex;
+                auto srcChain = targetChain->uniqueSource;
+                assert(!targetChain->didMoveToThisTarget);
+                assert(srcChain->pendingMovesFromThisSource > 0);
+
+                auto operandInterval = liveMap.at(pseudoMoveMultiple->operand(index).get());
+                auto resultInterval = resultMap.at(pseudoMoveMultiple->result(index).get());
+                assert(operandInterval->compound->allocatedRegister == chainRegister(srcChain));
+                assert(resultInterval->compound->allocatedRegister == chainRegister(targetChain));
+
+                // Emit the new move instruction.
+                auto move = std::make_unique<MovMRInstruction>(
+                        pseudoMoveMultiple->operand(index).get());
+                auto moveResult = move->result.setNew<ModeMValue>();
+                setRegister(moveResult, resultInterval->compound->allocatedRegister);
+
+                pseudoMoveMultiple->operand(index) = nullptr;
+                pseudoMoveMultiple->result(index).get()->replaceAllUses(moveResult);
+
+                reassociateResultInterval(resultInterval, moveResult);
+                bb->insertInstruction(it, std::move(move));
+
+                // Update the MoveChain structs.
+                targetChain->didMoveToThisTarget = true;
+
+                srcChain->pendingMovesFromThisSource--;
+                if (srcChain->isTail())
+                    activeTails.push_back(srcChain);
+
+                auto cycleChain = srcChain->cyclePointer;
+                if(cycleChain && cycleChain != targetChain->cyclePointer) {
+                    cycleChain->pendingMovesFromThisCycle--;
+                    if (!cycleChain->pendingMovesFromThisCycle)
+                        activeCycles.push_back(cycleChain);
+                }
+            };
+
+            // Traverse the graph backwards and determine all tails and cycles.
+            std::vector<MoveChain *> stack;
+            for (int i = 0; i < 16; i++) {
+                auto rootChain = &chains[i];
+
+                if (rootChain->isTail())
+                    activeTails.push_back(rootChain);
+
+                auto current = rootChain;
+                while (current) {
+                    // Check if we ran into a chain that was already traversed completely.
+                    if (current->traversalFinished)
                         break;
-                    chainInterval->inMoveChain = true;
 
-                    auto chainRegister = chainInterval->compound->allocatedRegister;
-                    assert(chainRegister >= 0);
+                    // If we reach a visited but not finished chain, we ran into a cycle.
+                    if (current->seenInTraversal) {
+                        // current will become the cyclePointer.
+                        auto it = stack.rbegin();
+                        do {
+                            // As current is not finished, it must be on the stack.
+                            assert(it != stack.rend());
+                            (*it)->cyclePointer = current;
 
-                    // Check if the value that is currently in the chainRegister has to be moved.
-                    auto srcInterval = currentState[chainRegister];
-                    if (!srcInterval) {
-                        chainList.push_back({chainInterval, false});
+                            // Accumulate the moves out of the cycle. Note that exactly one of the
+                            // moves from pendingMovesFromThisSource is inside the cycle.
+                            assert((*it)->pendingMovesFromThisSource > 0);
+                            current->pendingMovesFromThisCycle
+                                    += (*it)->pendingMovesFromThisSource - 1;
+                        } while(*(it++) != current);
                         break;
                     }
 
-                    auto destIt = resultMap.find(srcInterval->associatedValue);
-                    if (destIt == resultMap.end()) {
-                        chainList.push_back({chainInterval, false});
-                        break;
-                    }
+                    current->seenInTraversal = true;
+                    stack.push_back(current);
 
-                    auto destInterval = destIt->second;
-                    std::cout << destInterval->associatedValue << std::endl;
-                    std::cout << "                Move chain: " << srcInterval->associatedValue
-                            << " from " << chainRegister
-                            << " to " << destInterval->compound->allocatedRegister << std::endl;
-                    if (destInterval == resultInterval) {
-                        // We ran into a cycle.
-                        chainList.push_back({chainInterval, true});
-                        break;
-                    }
+                    current = current->uniqueSource;
+                }
 
-                    // The current chainInterval was not visited before; thus, we can assert:
-                    assert(!destInterval->previousMoveInChain);
-                    destInterval->previousMoveInChain = chainInterval;
-                    chainInterval = destInterval;
+                for (auto chain : stack)
+                    chain->traversalFinished = true;
+                stack.clear();
+            }
+
+            // First, handle all tails.
+            while (!activeTails.empty()) {
+                auto tailRegister = activeTails.back();
+                activeTails.pop_back();
+                emitMoveToChain(tailRegister);
+            }
+
+            // Now, handle all cycles.
+            while (!activeCycles.empty()) {
+                assert (!"Implement move cycles");
+                // TODO: For cycles of length 2, use xchg.
+                //       Otherwise, allocate a new temporary register.
+
+                // Resolving the cycle always results in a tail.
+                while (!activeTails.empty()) {
+                    auto tailRegister = activeTails.back();
+                    activeTails.pop_back();
+                    emitMoveToChain(tailRegister);
                 }
             }
 
-            // Actually emit the move chains.
-            for (const auto &moveChain : chainList) {
-                if (!moveChain.isCyclic) {
-                    // The move chain is a path.
-                    auto chainInterval = moveChain.lastInChain;
-                    do {
-                        assert(chainInterval->associatedValue);
-                        auto move = std::make_unique<MovMRInstruction>
-                                (chainInterval->associatedValue);
-                        auto moveResult = move->result.setNew<ModeMValue>();
-                        setRegister(moveResult, chainInterval->compound->allocatedRegister);
-                        bb->insertInstruction(it, std::move(move));
-
-                        // TODO: Reassociate intervals here.
-                        chainInterval = chainInterval->previousMoveInChain;
-                    } while (chainInterval);
-                } else {
-                    // The move chain is a cycle.
-                    auto nextResult = moveChain.lastInChain->associatedValue;
-                    auto nextRegister = moveChain.lastInChain->compound->allocatedRegister;
-                    auto chainInterval = moveChain.lastInChain->previousMoveInChain;
-                    do {
-                        assert(chainInterval->associatedValue);
-                        auto move = std::make_unique<XchgMRInstruction>(nextResult,
-                                chainInterval->associatedValue);
-                        auto firstResult = move->firstResult.setNew<ModeMValue>();
-                        auto secondResult = move->secondResult.setNew<ModeMValue>();
-                        setRegister(firstResult, nextRegister);
-                        setRegister(secondResult, chainInterval->compound->allocatedRegister);
-                        nextResult = secondResult;
-                        nextRegister = chainInterval->compound->allocatedRegister;
-                        bb->insertInstruction(it, std::move(move));
-
-                        // TODO: Reassociate intervals here.
-                        chainInterval = chainInterval->previousMoveInChain;
-                    } while (chainInterval);
-                }
-            }
             rewroteInstruction = true;
         }
 
