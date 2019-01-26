@@ -45,12 +45,19 @@ namespace arch_branch_kinds {
     };
 }
 
+enum OperandSize {
+    null,
+    dword,
+    qword
+};
+
 struct ModeMValue
 : Value,
         CastableIfValueKind<ModeMValue, arch_value_kinds::modeMResult> {
     ModeMValue()
     : Value{arch_value_kinds::modeMResult} { }
 
+    OperandSize operandSize = OperandSize::null;
     int modeRegister = -1;
 };
 

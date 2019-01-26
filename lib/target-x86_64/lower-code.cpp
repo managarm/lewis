@@ -19,8 +19,20 @@ private:
 };
 
 void LowerCodeImpl::run() {
-    auto lowerValue = [] (Value *) {
-        return std::make_unique<ModeMValue>();
+    auto lowerValue = [] (Value *value) {
+        auto localValue = hierarchy_cast<LocalValue *>(value);
+        assert(localValue);
+        auto lower = std::make_unique<ModeMValue>();
+        if (localValue->getType()->typeKind == type_kinds::pointer) {
+            lower->operandSize = OperandSize::qword;
+        } else if (localValue->getType()->typeKind == type_kinds::int32) {
+            lower->operandSize = OperandSize::dword;
+        } else if (localValue->getType()->typeKind == type_kinds::int64) {
+            lower->operandSize = OperandSize::qword;
+        } else {
+            assert(!"Unexpected type kind");
+        }
+        return lower;
     };
 
     for (auto it = _bb->phis().begin(); it != _bb->phis().end(); ++it) {
@@ -32,7 +44,7 @@ void LowerCodeImpl::run() {
     for (auto it = _bb->instructions().begin(); it != _bb->instructions().end(); ++it) {
         if (auto loadConst = hierarchy_cast<LoadConstInstruction *>(*it); loadConst) {
             auto lower = std::make_unique<MovMCInstruction>();
-            auto lowerResult = lower->result.set(lowerValue(lower->result.get()));
+            auto lowerResult = lower->result.set(lowerValue(loadConst->result.get()));
             lower->value = loadConst->value;
             loadConst->result.get()->replaceAllUses(lowerResult);
 
@@ -40,7 +52,7 @@ void LowerCodeImpl::run() {
         } else if (auto loadOffset = hierarchy_cast<LoadOffsetInstruction *>(*it); loadOffset) {
             auto lower = std::make_unique<MovRMWithOffsetInstruction>(loadOffset->operand.get(),
                     loadOffset->offset);
-            auto lowerResult = lower->result.set(lowerValue(lower->result.get()));
+            auto lowerResult = lower->result.set(lowerValue(loadOffset->result.get()));
             loadOffset->result.get()->replaceAllUses(lowerResult);
 
             loadOffset->operand = nullptr;
@@ -52,7 +64,7 @@ void LowerCodeImpl::run() {
             } else {
                 assert(!"Unexpected unary math opcode");
             }
-            auto lowerResult = lower->result.set(lowerValue(lower->result.get()));
+            auto lowerResult = lower->result.set(lowerValue(unaryMath->result.get()));
             lower->primary = unaryMath->operand.get();
             unaryMath->result.get()->replaceAllUses(lowerResult);
 
@@ -67,7 +79,7 @@ void LowerCodeImpl::run() {
             } else {
                 assert(!"Unexpected binary math opcode");
             }
-            auto lowerResult = lower->result.set(lowerValue(lower->result.get()));
+            auto lowerResult = lower->result.set(lowerValue(binaryMath->result.get()));
             lower->primary = binaryMath->left.get();
             lower->secondary = binaryMath->right.get();
             binaryMath->result.get()->replaceAllUses(lowerResult);
@@ -79,7 +91,7 @@ void LowerCodeImpl::run() {
             auto lower = std::make_unique<CallInstruction>(invoke->numOperands());
             lower->function = invoke->function;
 
-            auto lowerResult = lower->result.set(lowerValue(lower->result.get()));
+            auto lowerResult = lower->result.set(lowerValue(invoke->result.get()));
             invoke->result.get()->replaceAllUses(lowerResult);
 
             for (size_t i = 0; i < invoke->numOperands(); ++i) {

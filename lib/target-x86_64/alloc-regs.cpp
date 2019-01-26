@@ -10,6 +10,14 @@
 namespace lewis::targets::x86_64 {
 
 namespace {
+    std::unique_ptr<Value> cloneModeValue(Value *value) {
+        auto modeM = hierarchy_cast<ModeMValue *>(value);
+        assert(modeM);
+        auto clone = std::make_unique<ModeMValue>();
+        clone->operandSize = modeM->operandSize;
+        return clone;
+    }
+
     void setRegister(Value *v, int registerIdx) {
         if (auto modeMValue = hierarchy_cast<ModeMValue *>(v); modeMValue) {
             modeMValue->modeRegister = registerIdx;
@@ -219,7 +227,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
                 unaryMInPlace) {
             auto pseudoMove = bb->insertInstruction(it,
                     std::make_unique<PseudoMoveSingleInstruction>(unaryMInPlace->primary.get()));
-            auto pseudoMoveResult = pseudoMove->result.setNew<ModeMValue>();
+            auto pseudoMoveResult = pseudoMove->result.set(cloneModeValue(unaryMInPlace->primary.get()));
             unaryMInPlace->primary = pseudoMoveResult;
 
             auto compound = new LiveCompound;
@@ -243,7 +251,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
                 binaryMRInPlace) {
             auto pseudoMove = bb->insertInstruction(it,
                     std::make_unique<PseudoMoveSingleInstruction>(binaryMRInPlace->primary.get()));
-            auto pseudoMoveResult = pseudoMove->result.setNew<ModeMValue>();
+            auto pseudoMoveResult = pseudoMove->result.set(cloneModeValue(binaryMRInPlace->primary.get()));
             binaryMRInPlace->primary = pseudoMoveResult;
 
             auto compound = new LiveCompound;
@@ -269,7 +277,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
                     std::make_unique<PseudoMoveMultipleInstruction>(call->numOperands()));
             for (size_t i = 0; i < call->numOperands(); ++i) {
                 pseudoMove->operand(i) = call->operand(i).get();
-                auto pseudoMoveResult = pseudoMove->result(i).setNew<ModeMValue>();
+                auto pseudoMoveResult = pseudoMove->result(i).set(cloneModeValue(call->operand(i).get()));
                 call->operand(i) = pseudoMoveResult;
 
                 auto copyCompound = new LiveCompound;
@@ -316,7 +324,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
                 std::make_unique<PseudoMoveMultipleInstruction>(edges.size()));
         for (size_t i = 0; i < edges.size(); i++) {
             pseudoMove->operand(i) = edges[i]->alias.get();
-            edges[i]->alias = pseudoMove->result(i).setNew<ModeMValue>();
+            edges[i]->alias = pseudoMove->result(i).set(cloneModeValue(pseudoMove->operand(i).get()));
         }
     }
 
@@ -485,7 +493,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             }else{
                 std::cout << "        Rewriting pseudoMoveSingle (reassociate)" << std::endl;
                 auto movMR = std::make_unique<MovMRInstruction>(pseudoMoveSingle->operand.get());
-                auto movMRResult = movMR->result.setNew<ModeMValue>();
+                auto movMRResult = movMR->result.set(cloneModeValue(pseudoMoveSingle->operand.get()));
                 setRegister(movMRResult, resultInterval->compound->allocatedRegister);
 
                 pseudoMoveSingle->operand = nullptr;
@@ -626,7 +634,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 // Emit the new move instruction.
                 auto move = std::make_unique<MovMRInstruction>(
                         pseudoMoveMultiple->operand(index).get());
-                auto moveResult = move->result.setNew<ModeMValue>();
+                auto moveResult = move->result.set(cloneModeValue(pseudoMoveMultiple->operand(index).get()));
                 setRegister(moveResult, resultInterval->compound->allocatedRegister);
 
                 pseudoMoveMultiple->operand(index) = nullptr;

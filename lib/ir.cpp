@@ -6,6 +6,21 @@
 
 namespace lewis {
 
+Type *globalPointerType() {
+    static Type singleton{type_kinds::pointer};
+    return &singleton;
+}
+
+Type *globalInt32Type() {
+    static Type singleton{type_kinds::int32};
+    return &singleton;
+}
+
+Type *globalInt64Type() {
+    static Type singleton{type_kinds::int64};
+    return &singleton;
+}
+
 void ValueOrigin::doSet(std::unique_ptr<Value> v) {
     assert(!v->_origin);
     v->_origin = this;

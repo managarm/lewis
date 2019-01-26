@@ -22,6 +22,32 @@ struct DataFlowSink;
 struct BasicBlock;
 
 //---------------------------------------------------------------------------------------
+// Type class and related functionality.
+//---------------------------------------------------------------------------------------
+
+using TypeKindType = uint32_t;
+
+namespace type_kinds {
+    enum : TypeKindType {
+        null,
+        pointer,
+        int32,
+        int64
+    };
+}
+
+struct Type {
+    Type(TypeKindType typeKind_)
+    : typeKind{typeKind_} { }
+
+    const TypeKindType typeKind;
+};
+
+Type *globalPointerType();
+Type *globalInt32Type();
+Type *globalInt64Type();
+
+//---------------------------------------------------------------------------------------
 // ValueUse class to represent "uses" of a Value.
 //---------------------------------------------------------------------------------------
 
@@ -150,7 +176,10 @@ struct Value {
     using UseIterator = UseList::iterator;
 
     Value(ValueKindType valueKind_)
-    : valueKind{valueKind_}, _origin{nullptr} { }
+    : valueKind{valueKind_}, _type{nullptr}, _origin{nullptr} { }
+
+    Type *getType() { return _type; }
+    void setType(Type *type) { _type = type; }
 
     ValueOrigin *origin() {
         return _origin;
@@ -165,6 +194,7 @@ struct Value {
     const ValueKindType valueKind;
 
 private:
+    Type *_type;
     ValueOrigin *_origin;
     // Linked list of all uses of this Value.
     UseList _useList;
