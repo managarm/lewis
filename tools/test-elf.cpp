@@ -10,6 +10,7 @@
 
 int main() {
     lewis::Function f0;
+    f0.name = "automate_irq";
     auto b0 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
     auto arg0 = b0->attachPhi(std::make_unique<lewis::ArgumentPhi>());
     auto v0 = arg0->value.setNew<lewis::LocalValue>();

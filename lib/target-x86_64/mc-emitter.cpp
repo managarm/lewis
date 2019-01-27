@@ -89,7 +89,7 @@ void encodeModeWithDisp(util::ByteEncoder &enc, Value *mv, int32_t disp, Value *
 
 void MachineCodeEmitter::run() {
     auto textString = _elf->addString(std::make_unique<lewis::elf::String>(".text"));
-    auto symbolString = _elf->addString(std::make_unique<lewis::elf::String>("doSomething"));
+    auto symbolString = _elf->addString(std::make_unique<lewis::elf::String>(_fn->name));
 
     auto textSection = _elf->insertFragment(std::make_unique<lewis::elf::ByteSection>());
     textSection->name = textString;

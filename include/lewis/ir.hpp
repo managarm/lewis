@@ -756,6 +756,8 @@ struct Function {
         return ptr;
     }
 
+    std::string name;
+
 private:
     BlockList _blocks;
 };
