@@ -307,8 +307,18 @@ struct CastableIfBranchKind : Castable<T, IsBranchKind<S...>> { };
 struct FunctionReturnBranch
 : Branch,
         CastableIfBranchKind<FunctionReturnBranch, branch_kinds::functionReturn> {
-    FunctionReturnBranch()
-    : Branch{branch_kinds::functionReturn} { }
+    FunctionReturnBranch(size_t numOperands_)
+    : Branch{branch_kinds::functionReturn} {
+        for (size_t i = 0; i < numOperands_; i++)
+            _operands.push_back(std::make_unique<ValueUse>(nullptr));
+    }
+
+    size_t numOperands() { return _operands.size(); }
+    ValueUse &operand(size_t i) { return *_operands[i]; }
+
+private:
+    // TODO: This can be done without another indirection.
+    std::vector<std::unique_ptr<ValueUse>> _operands;
 };
 
 struct UnconditionalBranch
@@ -697,8 +707,15 @@ struct BasicBlock {
         return InstructionIterator{ptr};
     }
 
-    void setBranch(std::unique_ptr<Branch> branch) {
+    void doSetBranch(std::unique_ptr<Branch> branch) {
         _branch = std::move(branch);
+    }
+
+    template<typename T>
+    T *setBranch(std::unique_ptr<T> branch) {
+        auto ptr = branch.get();
+        doSetBranch(std::move(branch));
+        return ptr;
     }
 
     Branch *branch() {

@@ -230,8 +230,18 @@ private:
 struct RetBranch
 : Branch,
         CastableIfBranchKind<RetBranch, arch_branch_kinds::ret> {
-    RetBranch()
-    : Branch{arch_branch_kinds::ret} { }
+    RetBranch(size_t numOperands_)
+    : Branch{arch_branch_kinds::ret} {
+        for (size_t i = 0; i < numOperands_; i++)
+            _operands.push_back(std::make_unique<ValueUse>(nullptr));
+    }
+
+    size_t numOperands() { return _operands.size(); }
+    ValueUse &operand(size_t i) { return *_operands[i]; }
+
+private:
+    // TODO: This can be done without another indirection.
+    std::vector<std::unique_ptr<ValueUse>> _operands;
 };
 
 struct JmpBranch

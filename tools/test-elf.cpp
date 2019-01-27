@@ -48,7 +48,8 @@ int main() {
     auto v7 = i7->result.setNew<lewis::LocalValue>();
     v7->setType(lewis::globalInt32Type());
 
-    b0->setBranch(std::make_unique<lewis::FunctionReturnBranch>());
+    auto br0 = b0->setBranch(std::make_unique<lewis::FunctionReturnBranch>(1));
+    br0->operand(0) = v7;
 
     for (auto bb : f0.blocks()) {
         auto lo = lewis::targets::x86_64::LowerCodePass::create(bb);

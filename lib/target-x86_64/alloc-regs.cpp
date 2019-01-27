@@ -328,6 +328,32 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         }
     }
 
+    // Generate a PseudoMove instruction to function returns.
+    if (auto ret = hierarchy_cast<RetBranch *>(bb->branch()); ret) {
+        auto pseudoMove = bb->insertInstruction(
+                std::make_unique<PseudoMoveMultipleInstruction>(ret->numOperands()));
+        for (size_t i = 0; i < ret->numOperands(); ++i) {
+            pseudoMove->operand(i) = ret->operand(i).get();
+            auto pseudoMoveResult = pseudoMove->result(i).set(cloneModeValue(ret->operand(i).get()));
+            ret->operand(i) = pseudoMoveResult;
+
+            auto copyCompound = new LiveCompound;
+            switch (i) {
+            case 0: copyCompound->possibleRegisters = 0x01; break;
+            default: assert(!"TODO: Implement correct ABI for arbitrary return values");
+            }
+
+            auto copyInterval = new LiveInterval;
+            copyCompound->intervals.push_back(copyInterval);
+            copyInterval->associatedValue = pseudoMoveResult;
+            copyInterval->compound = copyCompound;
+            copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
+            copyInterval->finalPc = ProgramCounter{bb, afterBlock, nullptr, afterInstruction};
+
+            _queue.push(copyCompound);
+        }
+    }
+
     // Post-process the generated intervals.
     for (auto compound : collected) {
         for (auto interval : compound->intervals) {

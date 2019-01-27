@@ -107,7 +107,13 @@ void LowerCodeImpl::run() {
 
     auto branch = _bb->branch();
     if (auto functionReturn = hierarchy_cast<FunctionReturnBranch *>(branch); functionReturn) {
-        auto lower = std::make_unique<RetBranch>();
+        auto lower = std::make_unique<RetBranch>(functionReturn->numOperands());
+
+        for (size_t i = 0; i < functionReturn->numOperands(); ++i) {
+            lower->operand(i) = functionReturn->operand(i).get();
+            functionReturn->operand(i) = nullptr;
+        }
+
         _bb->setBranch(std::move(lower));
     }else if (auto unconditional = hierarchy_cast<UnconditionalBranch *>(branch); unconditional) {
         auto lower = std::make_unique<JmpBranch>(unconditional->target);
