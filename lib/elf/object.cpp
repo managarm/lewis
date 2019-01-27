@@ -58,6 +58,10 @@ void Object::doAddRelocation(std::unique_ptr<Relocation> relocation) {
     _relocations.push_back(std::move(relocation));
 }
 
+void Object::doAddInternalRelocation(std::unique_ptr<Relocation> relocation) {
+    _internalRelocations.push_back(std::move(relocation));
+}
+
 void Object::replaceFragment(Fragment *from, std::unique_ptr<Fragment> to) {
     assert((from->isSection() && to->isSection())
             || (!from->isSection() && !to->isSection()));

@@ -14,6 +14,7 @@ lib = shared_library('lewis',
     [
         'lib/elf/create-headers-pass.cpp',
         'lib/elf/file-emitter.cpp',
+        'lib/elf/internal-link-pass.cpp',
         'lib/elf/layout-pass.cpp',
         'lib/elf/object.cpp',
         'lib/ir.cpp',

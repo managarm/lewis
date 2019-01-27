@@ -57,7 +57,7 @@ void LayoutPassImpl::run() {
         } else if (auto shdrs = hierarchy_cast<ShdrsFragment *>(fragment); shdrs) {
             size = (1 + _elf->numberOfSections()) * sizeof(Elf64_Shdr);
         } else if (auto dynamic = hierarchy_cast<DynamicSection *>(fragment); dynamic) {
-            size = 5 * 16;
+            size = 6 * 16;
         } else if (auto strtab = hierarchy_cast<StringTableSection *>(fragment); strtab) {
             size = 1; // ELF uses index zero for non-existent strings.
             for (auto string : _elf->strings()) {

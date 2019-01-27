@@ -170,6 +170,8 @@ void FileEmitterImpl::_emitDynamic(DynamicSection *dynamic) {
     encodeXword(section, _elf->hashFragment->virtualAddress.value());
     encodeSxword(section, DT_JMPREL);
     encodeXword(section, _elf->pltRelocationFragment->virtualAddress.value());
+    encodeSxword(section, DT_PLTRELSZ);
+    encodeXword(section, _elf->pltRelocationFragment->computedSize.value());
     encodeSxword(section, DT_NULL);
     encodeXword(section, 0);
 }
@@ -205,17 +207,22 @@ void FileEmitterImpl::_emitSymbolTable(SymbolTableSection *symtab) {
         }
 
         size_t sectionIndex = 0;
+        uint64_t virtualAddress = 0;
         if (symbol->section) {
             assert(symbol->section->designatedIndex.has_value()
                     && "Section layout must be fixed for FileEmitter");
+            assert(symbol->section->virtualAddress.has_value()
+                    && "Section layout must be fixed for FileEmitter");
             sectionIndex = symbol->section->designatedIndex.value();
+            virtualAddress = symbol->section->virtualAddress.value() + symbol->value;
         }
 
         encodeWord(section, nameIndex); // st_name
         encode8(section, ELF64_ST_INFO(STB_GLOBAL, STT_FUNC)); // st_info
         encode8(section, 0); // st_other
         encodeHalf(section, sectionIndex); // st_shndx
-        encodeAddr(section, symbol->value); // st_value
+        // TODO: Use symbol->value in object files.
+        encodeAddr(section, virtualAddress); // st_value
         encodeXword(section, 0); // st_size
     }
 }
@@ -224,7 +231,7 @@ void FileEmitterImpl::_emitRela(RelocationSection *rel) {
     util::ByteEncoder section{&buffer};
 
     for (auto relocation : _elf->relocations()) {
-        assert(relocation->offset > 0);
+        assert(relocation->offset >= 0);
 
         assert(relocation->section && "Section layout must be fixed for FileEmitter");
         assert(relocation->section->virtualAddress.has_value()

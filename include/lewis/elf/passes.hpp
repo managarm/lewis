@@ -26,4 +26,9 @@ struct LayoutPass : ObjectPass {
     static std::unique_ptr<LayoutPass> create(Object *elf);
 };
 
+// Perform internal linking.
+struct InternalLinkPass : ObjectPass {
+    static std::unique_ptr<InternalLinkPass> create(Object *elf);
+};
+
 } // namespace lewis::elf

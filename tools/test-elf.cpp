@@ -22,16 +22,16 @@ int main() {
 
     auto i2 = b0->insertNewInstruction<lewis::LoadOffsetInstruction>(v0, 8);
     auto v2 = i2->result.setNew<lewis::LocalValue>();
-    v2->setType(lewis::globalInt64Type());
+    v2->setType(lewis::globalInt32Type());
 
     auto i3 = b0->insertNewInstruction<lewis::LoadConstInstruction>(4);
     auto v3 = i3->result.setNew<lewis::LocalValue>();
-    v3->setType(lewis::globalInt64Type());
+    v3->setType(lewis::globalInt32Type());
 
     auto i4 = b0->insertNewInstruction<lewis::BinaryMathInstruction>(
             lewis::BinaryMathOpcode::add, v2, v3);
     auto v4 = i4->result.setNew<lewis::LocalValue>();
-    v4->setType(lewis::globalInt64Type());
+    v4->setType(lewis::globalInt32Type());
 
     auto i5 = b0->insertNewInstruction<lewis::InvokeInstruction>("__mmio_read32", 2);
     i5->operand(0) = v1;
@@ -65,8 +65,10 @@ int main() {
     // Create headers and layout the file.
     auto headers_pass = lewis::elf::CreateHeadersPass::create(&elf);
     auto layout_pass = lewis::elf::LayoutPass::create(&elf);
+    auto link_pass = lewis::elf::InternalLinkPass::create(&elf);
     headers_pass->run();
     layout_pass->run();
+    link_pass->run();
 
     // Compose the output file.
     auto file_emitter = lewis::elf::FileEmitter::create(&elf);

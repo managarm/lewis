@@ -22,6 +22,8 @@ private:
 
     Function *_fn;
     elf::Object *_elf;
+    elf::ByteSection *_gotSection = nullptr;
+    elf::ByteSection *_pltSection = nullptr;
 };
 
 } // namespace lewis::targets::x86_64

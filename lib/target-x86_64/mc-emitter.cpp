@@ -56,9 +56,7 @@ void encodeModRm(util::ByteEncoder &enc, Value *mv, int extra) {
 }
 
 void encodeRex(util::ByteEncoder &enc, Value *mv, Value *rv) {
-    auto os = getOperandSize(mv);
-    // TODO: Handle instructions like movzx/movsx where this does not hold.
-    assert(os == getOperandSize(rv));
+    auto os = getOperandSize(rv);
     // TODO: Handle r8-r15 by setting REX.{R,X,B}.
     encodeRawRex(enc, os, 0, 0, 0);
 }
@@ -89,6 +87,8 @@ void encodeModeWithDisp(util::ByteEncoder &enc, Value *mv, int32_t disp, Value *
 
 void MachineCodeEmitter::run() {
     auto textString = _elf->addString(std::make_unique<lewis::elf::String>(".text"));
+    auto gotString = _elf->addString(std::make_unique<lewis::elf::String>(".got"));
+    auto pltString = _elf->addString(std::make_unique<lewis::elf::String>(".plt"));
     auto symbolString = _elf->addString(std::make_unique<lewis::elf::String>(_fn->name));
 
     auto textSection = _elf->insertFragment(std::make_unique<lewis::elf::ByteSection>());
@@ -100,12 +100,24 @@ void MachineCodeEmitter::run() {
     symbol->name = symbolString;
     symbol->section = textSection;
 
+    _gotSection = _elf->insertFragment(std::make_unique<lewis::elf::ByteSection>());
+    _gotSection->name = gotString;
+    _gotSection->type = SHT_PROGBITS;
+    _gotSection->flags = SHF_ALLOC;
+
+    _pltSection = _elf->insertFragment(std::make_unique<lewis::elf::ByteSection>());
+    _pltSection->name = pltString;
+    _pltSection->type = SHT_PROGBITS;
+    _pltSection->flags = SHF_ALLOC | SHF_EXECINSTR;
+
     for (auto bb : _fn->blocks())
         _emitBlock(bb, textSection);
 }
 
 void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSection) {
     util::ByteEncoder text{&textSection->buffer};
+    util::ByteEncoder got{&_gotSection->buffer};
+    util::ByteEncoder plt{&_pltSection->buffer};
 
     for (auto inst : bb->instructions()) {
         if (auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
@@ -144,10 +156,47 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
             auto symbol = _elf->addSymbol(std::make_unique<elf::Symbol>());
             symbol->name = string;
 
-            auto relocation = _elf->addRelocation(std::make_unique<elf::Relocation>());
-            relocation->section = textSection;
-            relocation->offset = text.offset() + 1;
-            relocation->symbol = symbol;
+            // Add a GOT entry for the function.
+            // TODO: Create the "special" GOT entries.
+            // TODO: Move GOT creation into the InternalLinkPass.
+            auto gotString = _elf->addString(std::make_unique<elf::String>(call->function + "@got"));
+            auto gotSymbol = _elf->addSymbol(std::make_unique<elf::Symbol>());
+            gotSymbol->name = gotString;
+            gotSymbol->section = _gotSection;
+            gotSymbol->value = got.offset();
+
+            auto jumpSlot = _elf->addRelocation(std::make_unique<elf::Relocation>());
+            jumpSlot->section = _gotSection;
+            jumpSlot->offset = got.offset();
+            jumpSlot->symbol = symbol;
+            encode64(got, 0);
+
+            // Add a PLT stub for the entry.
+            // TODO: Create the PLT header (and correct entries) for dynamic binding.
+            // TODO: Properly align PLT entries as in the ABI supplement.
+            // TODO: Move PLT creation into the InternalLinkPass.
+            auto pltString = _elf->addString(std::make_unique<elf::String>(call->function + "@plt"));
+            auto pltSymbol = _elf->addSymbol(std::make_unique<elf::Symbol>());
+            pltSymbol->name = pltString;
+            pltSymbol->section = _pltSection;
+            pltSymbol->value = plt.offset();
+
+            auto jumpThroughGot = _elf->addInternalRelocation(std::make_unique<elf::Relocation>());
+            jumpThroughGot->section = _pltSection;
+            jumpThroughGot->offset = plt.offset() + 2;
+            jumpThroughGot->symbol = gotSymbol;
+            jumpThroughGot->addend = -4;
+
+            encode8(plt, 0xFF);
+            encode8(plt, 0x25); // TODO: Use encodeRawModRm().
+            encode32(plt, 0);
+
+            // Add the actual jump to the .text section.
+            auto jumpToPlt = _elf->addInternalRelocation(std::make_unique<elf::Relocation>());
+            jumpToPlt->section = textSection;
+            jumpToPlt->offset = text.offset() + 1;
+            jumpToPlt->symbol = pltSymbol;
+            jumpToPlt->addend = -4;
 
             encode8(text, 0xE8);
             encode32(text, 0); // Relocation points here.

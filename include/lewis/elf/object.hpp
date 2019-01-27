@@ -190,6 +190,7 @@ struct Relocation {
     FragmentUse section;
     ptrdiff_t offset = -1;
     Symbol *symbol = nullptr;
+    std::optional<ptrdiff_t> addend;
 
     std::optional<size_t> designatedIndex;
 };
@@ -447,11 +448,39 @@ struct Object {
         return RelocationRange{this};
     }
 
+    struct InternalRelocationRange {
+        InternalRelocationRange(Object *elf)
+        : _elf{elf} { }
+
+        RelocationIterator begin() {
+            return RelocationIterator{_elf->_internalRelocations.begin()};
+        }
+        RelocationIterator end() {
+            return RelocationIterator{_elf->_internalRelocations.end()};
+        }
+
+    private:
+        Object *_elf;
+    };
+
+    void doAddInternalRelocation(std::unique_ptr<Relocation> relocation);
+
+    Relocation *addInternalRelocation(std::unique_ptr<Relocation> relocation) {
+        auto ptr = relocation.get();
+        doAddInternalRelocation(std::move(relocation));
+        return ptr;
+    }
+
+    InternalRelocationRange internalRelocations() {
+        return InternalRelocationRange{this};
+    }
+
 private:
     std::vector<std::unique_ptr<Fragment>> _fragments;
     std::vector<std::unique_ptr<String>> _strings;
     std::vector<std::unique_ptr<Symbol>> _symbols;
     std::vector<std::unique_ptr<Relocation>> _relocations;
+    std::vector<std::unique_ptr<Relocation>> _internalRelocations;
     size_t _numSections = 0;
 };
 
