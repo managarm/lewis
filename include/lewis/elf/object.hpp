@@ -23,7 +23,8 @@ namespace fragment_kinds {
         dynamicSection,
         stringTableSection,
         symbolTableSection,
-        relocationSection
+        relocationSection,
+        hashSection
     };
 }
 
@@ -193,6 +194,15 @@ struct Relocation {
     std::optional<size_t> designatedIndex;
 };
 
+struct HashSection : Fragment,
+        CastableIfFragmentKind<HashSection, fragment_kinds::hashSection> {
+    HashSection()
+    : Fragment{fragment_kinds::hashSection} { }
+
+    std::vector<Symbol *> buckets;
+    std::vector<Symbol *> chains;
+};
+
 struct Object {
     // -------------------------------------------------------------------------------------
     // Fragment management.
@@ -266,6 +276,7 @@ struct Object {
     FragmentUse stringTableFragment;
     FragmentUse symbolTableFragment;
     FragmentUse pltRelocationFragment;
+    FragmentUse hashFragment;
 
     // -------------------------------------------------------------------------------------
     // String management.
@@ -359,6 +370,10 @@ struct Object {
         }
         SymbolIterator end() {
             return SymbolIterator{_elf->_symbols.end()};
+        }
+
+        size_t size() {
+            return _elf->_symbols.size();
         }
 
     private:

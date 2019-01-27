@@ -23,6 +23,7 @@ private:
     void _emitStringTable(StringTableSection *strtab);
     void _emitSymbolTable(SymbolTableSection *symtab);
     void _emitRela(RelocationSection *rel);
+    void _emitHash(HashSection *hash);
 
     Object *_elf;
 };
@@ -74,6 +75,8 @@ void FileEmitterImpl::run() {
             _emitSymbolTable(symtab);
         } else if (auto rel = hierarchy_cast<RelocationSection *>(fragment); rel) {
             _emitRela(rel);
+        } else if (auto hash = hierarchy_cast<HashSection *>(fragment); hash) {
+            _emitHash(hash);
         } else {
             auto section = hierarchy_cast<ByteSection *>(fragment);
             assert(section && "Unexpected Fragment for FileEmitter");
@@ -163,6 +166,8 @@ void FileEmitterImpl::_emitDynamic(DynamicSection *dynamic) {
     encodeXword(section, _elf->stringTableFragment->virtualAddress.value());
     encodeSxword(section, DT_SYMTAB);
     encodeXword(section, _elf->symbolTableFragment->virtualAddress.value());
+    encodeSxword(section, DT_HASH);
+    encodeXword(section, _elf->hashFragment->virtualAddress.value());
     encodeSxword(section, DT_JMPREL);
     encodeXword(section, _elf->pltRelocationFragment->virtualAddress.value());
     encodeSxword(section, DT_NULL);
@@ -236,6 +241,29 @@ void FileEmitterImpl::_emitRela(RelocationSection *rel) {
         encodeAddr(section, sectionAddress + relocation->offset);
         encodeXword(section, (symbolIndex << 32) | R_X86_64_JUMP_SLOT);
         encodeSxword(section, 0);
+    }
+}
+
+void FileEmitterImpl::_emitHash(HashSection *hash) {
+    util::ByteEncoder section{&buffer};
+
+    encodeWord(section, hash->buckets.size());
+    encodeWord(section, hash->chains.size());
+
+    for (auto symbol : hash->buckets) {
+        if (symbol) {
+            encodeWord(section, symbol->designatedIndex.value());
+        }else{
+            encodeWord(section, 0);
+        }
+    }
+
+    for (auto symbol : hash->chains) {
+        if (symbol) {
+            encodeWord(section, symbol->designatedIndex.value());
+        }else{
+            encodeWord(section, 0);
+        }
     }
 }
 

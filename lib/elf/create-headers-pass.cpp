@@ -52,6 +52,12 @@ void CreateHeadersPassImpl::run() {
     //pltrel->sectionInfo = 1; // TODO: Index of the section the relocations apply to.
     pltrel->entrySize = sizeof(Elf64_Rela);
     _elf->pltRelocationFragment = pltrel;
+
+    auto hashtab = _elf->insertFragment(std::make_unique<HashSection>());
+    hashtab->type = SHT_HASH;
+    hashtab->flags = SHF_ALLOC;
+    hashtab->sectionLink = symtab;
+    _elf->hashFragment = hashtab;
 }
 
 std::unique_ptr<CreateHeadersPass> CreateHeadersPass::create(Object *elf) {

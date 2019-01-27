@@ -2,10 +2,35 @@
 // SPDX-License-Identifier: MIT
 
 #include <cassert>
+#include <climits>
 #include <iostream>
 #include <elf.h>
 #include <lewis/elf/passes.hpp>
 #include <lewis/elf/utils.hpp>
+
+namespace {
+    // Adapted from Bit Twiddling Hacks.
+    template <typename T>
+    T ceil2Power(T v) {
+        static_assert(std::is_unsigned<T>::value);
+        v--;
+        for (size_t i = 1; i < sizeof(v) * CHAR_BIT; i *= 2)
+            v |= v >> i;
+        return ++v;
+    }
+
+    uint32_t elf64Hash(const std::string &s) {
+        uint32_t h = 0;
+        for(size_t i = 0; i < s.size(); ++i) {
+            h = (h << 4) + (uint8_t)s[i];
+            uint32_t g = h & 0xF0000000;
+            if(g)
+                h ^= g >> 24;
+            h &= 0x0FFFFFFF;
+        }
+        return h;
+    }
+}
 
 namespace lewis::elf {
 
@@ -32,7 +57,7 @@ void LayoutPassImpl::run() {
         } else if (auto shdrs = hierarchy_cast<ShdrsFragment *>(fragment); shdrs) {
             size = (1 + _elf->numberOfSections()) * sizeof(Elf64_Shdr);
         } else if (auto dynamic = hierarchy_cast<DynamicSection *>(fragment); dynamic) {
-            size = 4 * 16;
+            size = 5 * 16;
         } else if (auto strtab = hierarchy_cast<StringTableSection *>(fragment); strtab) {
             size = 1; // ELF uses index zero for non-existent strings.
             for (auto string : _elf->strings()) {
@@ -53,6 +78,36 @@ void LayoutPassImpl::run() {
                 numEntries++;
             }
             size = sizeof(Elf64_Rela) * numEntries;
+        } else if (auto hash = hierarchy_cast<HashSection *>(fragment); hash) {
+            size_t tableSize = ceil2Power(_elf->symbols().size());
+            hash->buckets.resize(tableSize, 0);
+            hash->chains.resize(_elf->symbols().size() + 1);
+
+            struct BucketData {
+                size_t tail;
+                size_t collisions;
+            };
+
+            std::vector<BucketData> bucketData;
+            bucketData.resize(tableSize, BucketData{0, 0});
+
+            size_t maxCollisions = 0;
+            for (auto symbol : _elf->symbols()) {
+                assert(symbol->designatedIndex.has_value() && "Symbol layout needs to be fixed"
+                        " before hash table is realized.");
+
+                auto b = elf64Hash(symbol->name->buffer) & (tableSize - 1);
+                if (auto t = bucketData[b].tail; !t) {
+                    hash->buckets[b] = symbol;
+                }else{
+                    hash->chains[t] = symbol;
+                    bucketData[b].tail = symbol->designatedIndex.value();
+                    bucketData[b].collisions++;
+                    maxCollisions = std::max(maxCollisions, bucketData[b].collisions);
+                }
+            }
+
+            std::cout << "Max collisions in hash table: " << maxCollisions << std::endl;
         } else {
             auto section = hierarchy_cast<ByteSection *>(fragment);
             assert(section && "Unexpected ELF fragment");
