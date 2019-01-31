@@ -16,6 +16,10 @@ int main() {
     auto v0 = arg0->value.setNew<lewis::LocalValue>();
     v0->setType(lewis::globalPointerType());
 
+    auto b1 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
+
+    auto b2 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
+
     auto i1 = b0->insertNewInstruction<lewis::LoadOffsetInstruction>(v0, 0);
     auto v1 = i1->result.setNew<lewis::LocalValue>();
     v1->setType(lewis::globalPointerType());
@@ -48,8 +52,22 @@ int main() {
     auto v7 = i7->result.setNew<lewis::LocalValue>();
     v7->setType(lewis::globalInt32Type());
 
-    auto br0 = b0->setBranch(std::make_unique<lewis::FunctionReturnBranch>(1));
-    br0->operand(0) = v7;
+    auto br0 = b0->setBranch(std::make_unique<lewis::ConditionalBranch>(b1, b2));
+    br0->operand = v7;
+
+    auto i8 = b1->insertNewInstruction<lewis::LoadConstInstruction>(0);
+    auto v8 = i8->result.setNew<lewis::LocalValue>();
+    v8->setType(lewis::globalInt32Type());
+
+    auto br1 = b1->setBranch(std::make_unique<lewis::FunctionReturnBranch>(1));
+    br1->operand(0) = v8;
+
+    auto i9 = b2->insertNewInstruction<lewis::LoadConstInstruction>(1);
+    auto v9 = i9->result.setNew<lewis::LocalValue>();
+    v9->setType(lewis::globalInt32Type());
+
+    auto br2 = b2->setBranch(std::make_unique<lewis::FunctionReturnBranch>(1));
+    br2->operand(0) = v9;
 
     for (auto bb : f0.blocks()) {
         auto lo = lewis::targets::x86_64::LowerCodePass::create(bb);

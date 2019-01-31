@@ -208,8 +208,16 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
     auto branch = bb->branch();
     if (auto ret = hierarchy_cast<RetBranch *>(branch); ret) {
         encode8(text, 0xC3);
-    }else if (auto jmp = hierarchy_cast<JmpBranch *>(branch); jmp) {
+    } else if (auto jmp = hierarchy_cast<JmpBranch *>(branch); jmp) {
         encode8(text, 0xE9);
+        encode32(text, 0); // TODO: Generate a relocation here.
+    } else if (auto jnz = hierarchy_cast<JnzBranch *>(branch); jnz) {
+        encodeRex(text, jnz->operand.get(), jnz->operand.get());
+        encode8(text, 0x85);
+        encodeModRm(text, jnz->operand.get(), jnz->operand.get());
+
+        encode8(text, 0x0F);
+        encode8(text, 0x85);
         encode32(text, 0); // TODO: Generate a relocation here.
     } else {
         assert(!"Unexpected x86_64 IR branch");

@@ -118,6 +118,13 @@ void LowerCodeImpl::run() {
     }else if (auto unconditional = hierarchy_cast<UnconditionalBranch *>(branch); unconditional) {
         auto lower = std::make_unique<JmpBranch>(unconditional->target);
         _bb->setBranch(std::move(lower));
+    }else if (auto conditional = hierarchy_cast<ConditionalBranch *>(branch); conditional) {
+        auto lower = std::make_unique<JnzBranch>(conditional->ifTarget, conditional->elseTarget);
+
+        lower->operand = conditional->operand.get();
+        conditional->operand = nullptr;
+
+        _bb->setBranch(std::move(lower));
     } else {
         assert(!"Unexpected generic IR branch");
     }

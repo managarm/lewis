@@ -42,6 +42,7 @@ namespace arch_branch_kinds {
         unused = instruction_kinds::kindsForX86,
         ret,
         jmp,
+        jnz,
     };
 }
 
@@ -252,6 +253,19 @@ struct JmpBranch
 
     // TODO: Use a BlockLink class similar to ValueUse.
     BasicBlock *target;
+};
+
+struct JnzBranch
+: Branch,
+        CastableIfBranchKind<JnzBranch, arch_branch_kinds::jnz> {
+    JnzBranch(BasicBlock *ifTarget_ = nullptr, BasicBlock *elseTarget_ = nullptr)
+    : Branch{arch_branch_kinds::jnz}, ifTarget{ifTarget_}, elseTarget{elseTarget_},
+            operand{nullptr} { }
+
+    // TODO: Use a BlockLink class similar to ValueUse.
+    BasicBlock *ifTarget;
+    BasicBlock *elseTarget;
+    ValueUse operand;
 };
 
 } // namespace lewis::targets::x86_64

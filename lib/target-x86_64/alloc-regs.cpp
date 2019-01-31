@@ -352,6 +352,23 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
 
             _queue.push(copyCompound);
         }
+    } else if (auto jnz = hierarchy_cast<JnzBranch *>(bb->branch()); jnz) {
+        auto pseudoMove = bb->insertNewInstruction<PseudoMoveSingleInstruction>();
+        pseudoMove->operand = jnz->operand.get();
+        auto pseudoMoveResult = pseudoMove->result.set(cloneModeValue(jnz->operand.get()));
+        jnz->operand = pseudoMoveResult;
+
+        auto copyCompound = new LiveCompound;
+        copyCompound->possibleRegisters = 0xF;
+
+        auto copyInterval = new LiveInterval;
+        copyCompound->intervals.push_back(copyInterval);
+        copyInterval->associatedValue = pseudoMoveResult;
+        copyInterval->compound = copyCompound;
+        copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
+        copyInterval->finalPc = ProgramCounter{bb, afterBlock, nullptr, afterInstruction};
+
+        _queue.push(copyCompound);
     }
 
     // Post-process the generated intervals.

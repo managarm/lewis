@@ -280,6 +280,7 @@ namespace branch_kinds {
         null,
         functionReturn,
         unconditional,
+        conditional,
 
         // Give each architecture 16k branches; that should be enough.
         kindsForX86 = 1 << 14
@@ -329,6 +330,19 @@ struct UnconditionalBranch
 
     // TODO: Use a BlockLink class similar to ValueUse.
     BasicBlock *target;
+};
+
+struct ConditionalBranch
+: Branch,
+        CastableIfBranchKind<ConditionalBranch, branch_kinds::conditional> {
+    ConditionalBranch(BasicBlock *ifTarget_ = nullptr, BasicBlock *elseTarget_ = nullptr)
+    : Branch{branch_kinds::conditional}, ifTarget{ifTarget_}, elseTarget{elseTarget_},
+            operand{nullptr} { }
+
+    // TODO: Use a BlockLink class similar to ValueUse.
+    BasicBlock *ifTarget;
+    BasicBlock *elseTarget;
+    ValueUse operand;
 };
 
 //---------------------------------------------------------------------------------------
