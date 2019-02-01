@@ -86,32 +86,47 @@ void encodeModeWithDisp(util::ByteEncoder &enc, Value *mv, int32_t disp, Value *
 }
 
 void MachineCodeEmitter::run() {
-    auto textString = _elf->addString(std::make_unique<lewis::elf::String>(".text"));
-    auto gotString = _elf->addString(std::make_unique<lewis::elf::String>(".got"));
-    auto pltString = _elf->addString(std::make_unique<lewis::elf::String>(".plt"));
-    auto symbolString = _elf->addString(std::make_unique<lewis::elf::String>(_fn->name));
+    auto textString = _elf->addString(std::make_unique<elf::String>(".text"));
+    auto gotString = _elf->addString(std::make_unique<elf::String>(".got"));
+    auto pltString = _elf->addString(std::make_unique<elf::String>(".plt"));
+    auto symbolString = _elf->addString(std::make_unique<elf::String>(_fn->name));
 
-    auto textSection = _elf->insertFragment(std::make_unique<lewis::elf::ByteSection>());
+    auto textSection = _elf->insertFragment(std::make_unique<elf::ByteSection>());
     textSection->name = textString;
     textSection->type = SHT_PROGBITS;
     textSection->flags = SHF_ALLOC | SHF_EXECINSTR;
 
-    auto symbol = _elf->addSymbol(std::make_unique<lewis::elf::Symbol>());
+    auto symbol = _elf->addSymbol(std::make_unique<elf::Symbol>());
     symbol->name = symbolString;
     symbol->section = textSection;
 
-    _gotSection = _elf->insertFragment(std::make_unique<lewis::elf::ByteSection>());
+    _gotSection = _elf->insertFragment(std::make_unique<elf::ByteSection>());
     _gotSection->name = gotString;
     _gotSection->type = SHT_PROGBITS;
     _gotSection->flags = SHF_ALLOC;
 
-    _pltSection = _elf->insertFragment(std::make_unique<lewis::elf::ByteSection>());
+    _pltSection = _elf->insertFragment(std::make_unique<elf::ByteSection>());
     _pltSection->name = pltString;
     _pltSection->type = SHT_PROGBITS;
     _pltSection->flags = SHF_ALLOC | SHF_EXECINSTR;
 
-    for (auto bb : _fn->blocks())
+    // Generate a symbol for each basic block.
+    size_t i = 0;
+    for (auto bb : _fn->blocks()) {
+        auto bbString = _elf->addString(std::make_unique<elf::String>(_fn->name
+                + ".bb" + std::to_string(i)));
+        auto bbSymbol = _elf->addSymbol(std::make_unique<elf::Symbol>());
+        bbSymbol->name = bbString;
+        bbSymbol->section = textSection;
+        _bbSymbols.insert({bb, bbSymbol});
+        i++;
+    }
+
+    for (auto bb : _fn->blocks()) {
+        auto bbSymbol = _bbSymbols.at(bb);
+        bbSymbol->value = textSection->buffer.size();
         _emitBlock(bb, textSection);
+    }
 }
 
 void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSection) {
@@ -209,16 +224,37 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
     if (auto ret = hierarchy_cast<RetBranch *>(branch); ret) {
         encode8(text, 0xC3);
     } else if (auto jmp = hierarchy_cast<JmpBranch *>(branch); jmp) {
+        auto jump = _elf->addInternalRelocation(std::make_unique<elf::Relocation>());
+        jump->section = textSection;
+        jump->offset = text.offset() + 1;
+        jump->symbol = _bbSymbols.at(jmp->target);
+        jump->addend = -4;
+
         encode8(text, 0xE9);
-        encode32(text, 0); // TODO: Generate a relocation here.
+        encode32(text, 0);
     } else if (auto jnz = hierarchy_cast<JnzBranch *>(branch); jnz) {
         encodeRex(text, jnz->operand.get(), jnz->operand.get());
         encode8(text, 0x85);
         encodeModRm(text, jnz->operand.get(), jnz->operand.get());
 
+        auto ifJump = _elf->addInternalRelocation(std::make_unique<elf::Relocation>());
+        ifJump->section = textSection;
+        ifJump->offset = text.offset() + 2;
+        ifJump->symbol = _bbSymbols.at(jnz->ifTarget);
+        ifJump->addend = -4;
+
         encode8(text, 0x0F);
         encode8(text, 0x85);
-        encode32(text, 0); // TODO: Generate a relocation here.
+        encode32(text, 0);
+
+        auto elseJump = _elf->addInternalRelocation(std::make_unique<elf::Relocation>());
+        elseJump->section = textSection;
+        elseJump->offset = text.offset() + 1;
+        elseJump->symbol = _bbSymbols.at(jnz->elseTarget);
+        elseJump->addend = -4;
+
+        encode8(text, 0xE9);
+        encode32(text, 0);
     } else {
         assert(!"Unexpected x86_64 IR branch");
     }

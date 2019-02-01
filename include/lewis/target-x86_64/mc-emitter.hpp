@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 #include <lewis/elf/object.hpp>
 #include <lewis/target-x86_64/arch-ir.hpp>
@@ -24,6 +25,7 @@ private:
     elf::Object *_elf;
     elf::ByteSection *_gotSection = nullptr;
     elf::ByteSection *_pltSection = nullptr;
+    std::unordered_map<BasicBlock *, elf::Symbol *> _bbSymbols;
 };
 
 } // namespace lewis::targets::x86_64
