@@ -124,6 +124,7 @@ struct AllocateRegistersImpl : AllocateRegistersPass {
     void run() override;
 
 private:
+    void _allocateCompound(LiveCompound *compound);
     void _collectBlockIntervals(BasicBlock *bb);
     void _collectPhiIntervals(BasicBlock *bb);
     std::optional<ProgramCounter> _determineFinalPc(BasicBlock *bb, Value *v);
@@ -133,7 +134,8 @@ private:
 
     // Stores all intervals that still need to be allocated.
     // TODO: Prioritize the intervals in some way, e.g. by use density.
-    std::queue<LiveCompound *> _queue;
+    std::queue<LiveCompound *> _restrictedQueue;
+    std::queue<LiveCompound *> _unrestrictedQueue;
 
     // Stores all intervals that have already been allocated.
     frg::interval_tree<
@@ -152,44 +154,71 @@ void AllocateRegistersImpl::run() {
     for (auto bb : _fn->blocks())
         _collectPhiIntervals(bb);
 
-    // The following loop performs the actual allocation.
-    while (!_queue.empty()) {
-        auto compound = _queue.front();
-        _queue.pop();
-
-        // Determine a bitmask of registers that are already allocated.
-        uint64_t registersBlocked = 0;
-        for (auto interval : compound->intervals)
-            _allocated.for_overlaps([&] (LiveInterval *overlap) {
-                assert(overlap->compound->allocatedRegister >= 0);
-                registersBlocked |= 1 << overlap->compound->allocatedRegister;
-            }, interval->originPc, interval->finalPc);
-
-        // Chose the first free register using the bitmask.
-        // TODO: Currently, we just allocate to the first 4 registers: rax, rcx, rdx, rbx.
-        //       Generalize this register model.
-        for (int i = 0; i < 8; i++) {
-            if (!(compound->possibleRegisters & (1 << i)))
-                continue;
-            if (registersBlocked & (1 << i))
-                continue;
-            compound->allocatedRegister = i;
-            break;
-        }
-        assert(compound->allocatedRegister >= 0
-                && "Register spilling is not implemented yet");
-        std::cout << "Allocating to register " << compound->allocatedRegister << std::endl;
-        for (auto interval : compound->intervals)
-            std::cout << "    Affects " << interval->associatedValue
-                    << " at [" << interval->originPc.instruction
-                    << ", " << interval->finalPc.instruction << "]" << std::endl;
-
-        for (auto interval : compound->intervals)
-            _allocated.insert(interval);
+    // The following loops performs the actual allocation.
+    // Perform "restricted" allocations first. Restricted allocations are those that *must*
+    // fulfill certain conditions in order to yield a feasible allocation, i.e.
+    // they cannot be split or spilled. The ISA has to guarantee that even without
+    // splitting or spilling we can find a feasible allocation.
+    // For x86 this is easy, as all restricted allocation always go into fixed registers.
+    while (!_restrictedQueue.empty()) {
+        auto compound = _restrictedQueue.front();
+        _restrictedQueue.pop();
+        _allocateCompound(compound);
+    }
+    // We perform unrestricted allocations afterwards. If those cannot be satisfied, we can
+    // just split or spill the intervals. We *never* have to split or spill a restricted
+    // allocation in this second loop, as those are all already fixed.
+    while (!_unrestrictedQueue.empty()) {
+        auto compound = _unrestrictedQueue.front();
+        _unrestrictedQueue.pop();
+        _allocateCompound(compound);
     }
 
     for (auto bb : _fn->blocks())
         _establishAllocation(bb);
+}
+
+void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
+    // Determine which allocations would be possible.
+    struct AllocationState {
+        // TODO: Compute the allocation cost.
+        int cost = 0;
+        bool allocationPossible = true;
+    };
+
+    AllocationState state[16];
+
+    std::cout << "Allocating compound" << std::endl;
+    for (auto interval : compound->intervals) {
+        std::cout << "    Interval " << interval->associatedValue
+                << " at [" << interval->originPc.instruction
+                << ", " << interval->finalPc.instruction << "]" << std::endl;
+        _allocated.for_overlaps([&] (LiveInterval *overlap) {
+            auto overlapRegister = overlap->compound->allocatedRegister;
+            assert(overlapRegister >= 0);
+            state[overlapRegister].allocationPossible = false;
+        }, interval->originPc, interval->finalPc);
+    }
+
+    // Chose the best free register according to its cost.
+    int bestRegister = -1;
+    for (int i = 0; i < 8; i++) {
+        if (!(compound->possibleRegisters & (1 << i)))
+            continue;
+        if (!state[i].allocationPossible)
+            continue;
+        if (bestRegister < 0 || state[bestRegister].cost < state[i].cost) {
+            bestRegister = i;
+            break;
+        }
+    }
+    assert(bestRegister >= 0 && "Could not find possible register for allocation");
+
+    compound->allocatedRegister = bestRegister;
+    std::cout << "    Allocating to register " << compound->allocatedRegister << std::endl;
+
+    for (auto interval : compound->intervals)
+        _allocated.insert(interval);
 }
 
 // Called before allocation. Generates all LiveIntervals and adds them to the queue.
@@ -200,7 +229,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
     for (auto it = bb->instructions().begin(); it != bb->instructions().end(); ++it) {
         if (auto movMC = hierarchy_cast<MovMCInstruction *>(*it); movMC) {
             auto compound = new LiveCompound;
-            compound->possibleRegisters = 0xF;
+            compound->possibleRegisters = 0xF0F;
 
             auto interval = new LiveInterval;
             compound->intervals.push_back(interval);
@@ -213,7 +242,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         } else if (auto unaryMOverwrite = hierarchy_cast<UnaryMOverwriteInstruction *>(*it);
                 unaryMOverwrite) {
             auto compound = new LiveCompound;
-            compound->possibleRegisters = 0xF;
+            compound->possibleRegisters = 0xF0F;
 
             auto resultInterval = new LiveInterval;
             compound->intervals.push_back(resultInterval);
@@ -231,7 +260,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             unaryMInPlace->primary = pseudoMoveResult;
 
             auto compound = new LiveCompound;
-            compound->possibleRegisters = 0xF;
+            compound->possibleRegisters = 0xF0F;
 
             auto copyInterval = new LiveInterval;
             compound->intervals.push_back(copyInterval);
@@ -255,7 +284,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             binaryMRInPlace->primary = pseudoMoveResult;
 
             auto compound = new LiveCompound;
-            compound->possibleRegisters = 0xF;
+            compound->possibleRegisters = 0xF0F;
 
             auto copyInterval = new LiveInterval;
             compound->intervals.push_back(copyInterval);
@@ -350,7 +379,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
             copyInterval->finalPc = ProgramCounter{bb, afterBlock, nullptr, afterInstruction};
 
-            _queue.push(copyCompound);
+            _restrictedQueue.push(copyCompound);
         }
     } else if (auto jnz = hierarchy_cast<JnzBranch *>(bb->branch()); jnz) {
         auto pseudoMove = bb->insertNewInstruction<PseudoMoveSingleInstruction>();
@@ -359,7 +388,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         jnz->operand = pseudoMoveResult;
 
         auto copyCompound = new LiveCompound;
-        copyCompound->possibleRegisters = 0xF;
+        copyCompound->possibleRegisters = 0xF0F;
 
         auto copyInterval = new LiveInterval;
         copyCompound->intervals.push_back(copyInterval);
@@ -368,7 +397,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
         copyInterval->finalPc = ProgramCounter{bb, afterBlock, nullptr, afterInstruction};
 
-        _queue.push(copyCompound);
+        _unrestrictedQueue.push(copyCompound);
     }
 
     // Post-process the generated intervals.
@@ -380,7 +409,12 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             interval->finalPc = maybeFinalPc.value_or(interval->originPc);
         }
 
-        _queue.push(compound);
+        // TODO: This popcount is ugly. Find a better solution.
+        if(__builtin_popcount(compound->possibleRegisters) == 1) {
+            _restrictedQueue.push(compound);
+        }else{
+            _unrestrictedQueue.push(compound);
+        }
     }
 }
 
@@ -400,10 +434,10 @@ void AllocateRegistersImpl::_collectPhiIntervals(BasicBlock *bb) {
             auto maybeFinalPc = _determineFinalPc(bb, phi->value.get());
             nodeInterval->finalPc = maybeFinalPc.value_or(nodeInterval->originPc);
 
-            _queue.push(compound);
+            _restrictedQueue.push(compound);
         } else if (auto dataFlow = hierarchy_cast<DataFlowPhi *>(phi); dataFlow) {
             auto compound = new LiveCompound;
-            compound->possibleRegisters = 0xF;
+            compound->possibleRegisters = 0xF0F;
 
             auto nodeInterval = new LiveInterval;
             compound->intervals.push_back(nodeInterval);
@@ -429,7 +463,7 @@ void AllocateRegistersImpl::_collectPhiIntervals(BasicBlock *bb) {
                         nullptr, afterInstruction};
             }
 
-            _queue.push(compound);
+            _unrestrictedQueue.push(compound);
 
         } else {
             assert(!"Unexpected IR phi");
@@ -781,6 +815,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 liveIt = liveMap.erase(liveIt);
             } else {
                 assert(finalPc.block == bb);
+                // TODO: This does not handle phi values correctly if there are never used.
                 assert(!(finalPc <= ProgramCounter{bb, inBlock, *it, afterInstruction}));
                 ++liveIt;
             }

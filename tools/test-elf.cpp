@@ -13,18 +13,17 @@ int main() {
     f0.name = "automate_irq";
     auto b0 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
     auto arg0 = b0->attachPhi(std::make_unique<lewis::ArgumentPhi>());
-    auto v0 = arg0->value.setNew<lewis::LocalValue>();
-    v0->setType(lewis::globalPointerType());
+    auto pv0 = arg0->value.setNew<lewis::LocalValue>();
+    pv0->setType(lewis::globalPointerType());
 
     auto b1 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
-
     auto b2 = f0.addBlock(std::make_unique<lewis::BasicBlock>());
 
-    auto i1 = b0->insertNewInstruction<lewis::LoadOffsetInstruction>(v0, 0);
+    auto i1 = b0->insertNewInstruction<lewis::LoadOffsetInstruction>(pv0, 0);
     auto v1 = i1->result.setNew<lewis::LocalValue>();
     v1->setType(lewis::globalPointerType());
 
-    auto i2 = b0->insertNewInstruction<lewis::LoadOffsetInstruction>(v0, 8);
+    auto i2 = b0->insertNewInstruction<lewis::LoadOffsetInstruction>(pv0, 8);
     auto v2 = i2->result.setNew<lewis::LocalValue>();
     v2->setType(lewis::globalInt32Type());
 
@@ -55,14 +54,38 @@ int main() {
     auto br0 = b0->setBranch(std::make_unique<lewis::ConditionalBranch>(b1, b2));
     br0->operand = v7;
 
-    auto i8 = b1->insertNewInstruction<lewis::LoadConstInstruction>(0);
+    // ----
+
+    auto df0 = b1->attachPhi(std::make_unique<lewis::DataFlowPhi>());
+    auto edge0 = lewis::DataFlowEdge::attach(std::make_unique<lewis::DataFlowEdge>(),
+        b0->source, df0->sink);
+    edge0->alias = v1;
+    auto pv1 = df0->value.setNew<lewis::LocalValue>();
+    pv1->setType(lewis::globalPointerType());
+
+    auto df1 = b1->attachPhi(std::make_unique<lewis::DataFlowPhi>());
+    auto edge1 = lewis::DataFlowEdge::attach(std::make_unique<lewis::DataFlowEdge>(),
+        b0->source, df1->sink);
+    edge1->alias = v7;
+    auto pv2 = df1->value.setNew<lewis::LocalValue>();
+    pv2->setType(lewis::globalInt32Type());
+
+    auto i10 = b1->insertNewInstruction<lewis::InvokeInstruction>("__trigger_event", 2);
+    i10->operand(0) = pv1;
+    i10->operand(1) = pv2;
+    auto v10 = i10->result.setNew<lewis::LocalValue>();
+    v10->setType(lewis::globalInt32Type());
+
+    auto i8 = b1->insertNewInstruction<lewis::LoadConstInstruction>(1);
     auto v8 = i8->result.setNew<lewis::LocalValue>();
     v8->setType(lewis::globalInt32Type());
 
     auto br1 = b1->setBranch(std::make_unique<lewis::FunctionReturnBranch>(1));
     br1->operand(0) = v8;
 
-    auto i9 = b2->insertNewInstruction<lewis::LoadConstInstruction>(1);
+    // ----
+
+    auto i9 = b2->insertNewInstruction<lewis::LoadConstInstruction>(-1);
     auto v9 = i9->result.setNew<lewis::LocalValue>();
     v9->setType(lewis::globalInt32Type());
 
