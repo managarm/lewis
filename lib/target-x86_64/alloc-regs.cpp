@@ -146,6 +146,10 @@ private:
         &LiveInterval::rbHook,
         &LiveInterval::intervalHook
     > _allocated;
+
+    // Bitmask of all registers that are used.
+    // The function prologue is constructed from this.
+    uint64_t _usedRegisters = 0;
 };
 
 void AllocateRegistersImpl::run() {
@@ -219,6 +223,7 @@ void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
 
     for (auto interval : compound->intervals)
         _allocated.insert(interval);
+    _usedRegisters |= 1 << bestRegister;
 }
 
 // Called before allocation. Generates all LiveIntervals and adds them to the queue.
@@ -439,7 +444,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         }
 
         // TODO: This popcount is ugly. Find a better solution.
-        if(__builtin_popcount(compound->possibleRegisters) == 1) {
+        if(__builtin_popcountl(compound->possibleRegisters) == 1) {
             _restrictedQueue.push(compound);
         }else{
             _unrestrictedQueue.push(compound);
@@ -523,6 +528,26 @@ std::optional<ProgramCounter> AllocateRegistersImpl::_determineFinalPc(BasicBloc
 // This is called *after* the actual allocation is done. It "implements" the allocation by
 // fixing registers in the IR and generating necessary move instructions.
 void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
+    // Callee-saved registers (i.e. owned by the caller).
+    const uint64_t callerRegs = 0xF028;
+
+    // Mask of registers that need to be saved.
+    auto saveMask = callerRegs & _usedRegisters;
+
+    // Stack space required by this function.
+    auto stackSpace = __builtin_popcountl(saveMask) * 8;
+    assert((stackSpace & 0xF) && "TODO: adjust the stack to be aligned on call");
+
+    // Generate the function prologue.
+    if (bb == *_fn->blocks().begin()) {
+        for (int i = 0; i < 16; i++) {
+            if (!(saveMask & (1 << i)))
+                continue;
+            bb->insertInstruction(bb->instructions().begin(),
+                    std::make_unique<PushSaveInstruction>(i));
+        }
+    }
+
     std::unordered_map<Value *, LiveInterval *> liveMap;
     std::unordered_map<Value *, LiveInterval *> resultMap;
     std::cout << "Fixing basic block " << bb << std::endl;
@@ -879,6 +904,15 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
         if (rewroteInstruction)
             bb->eraseInstruction(it);
         it = nextIt;
+    }
+
+    // Generate the function epilogue.
+    if (auto ret = hierarchy_cast<RetBranch *>(bb->branch()); ret) {
+        for (int i = 15; i >= 0; i--) {
+            if (!(saveMask & (1 << i)))
+                continue;
+            bb->insertInstruction(std::make_unique<PopRestoreInstruction>(i));
+        }
     }
 }
 

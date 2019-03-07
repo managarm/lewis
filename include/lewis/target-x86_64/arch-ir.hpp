@@ -24,6 +24,8 @@ namespace arch_instruction_kinds {
         unused = instruction_kinds::kindsForX86,
         pseudoMoveSingle,
         pseudoMoveMultiple,
+        pushSave,
+        popRestore,
         xchgMR,
         movMC,
         movMR,
@@ -60,6 +62,26 @@ struct ModeMValue
 
     OperandSize operandSize = OperandSize::null;
     int modeRegister = -1;
+};
+
+struct PushSaveInstruction
+: Instruction,
+        CastableIfInstructionKind<PushSaveInstruction,
+                arch_instruction_kinds::pushSave> {
+    PushSaveInstruction(int operandRegister_ = -1)
+    : Instruction{arch_instruction_kinds::pushSave}, operandRegister{operandRegister_} { }
+
+    int operandRegister;
+};
+
+struct PopRestoreInstruction
+: Instruction,
+        CastableIfInstructionKind<PopRestoreInstruction,
+                arch_instruction_kinds::popRestore> {
+    PopRestoreInstruction(int operandRegister_ = -1)
+    : Instruction{arch_instruction_kinds::popRestore}, operandRegister{operandRegister_} { }
+
+    int operandRegister;
 };
 
 // Instruction that takes a single operand and overwrites a mode M result.

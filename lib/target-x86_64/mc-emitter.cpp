@@ -136,7 +136,15 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
     util::ByteEncoder plt{&_pltSection->buffer};
 
     for (auto inst : bb->instructions()) {
-        if (auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
+        if (auto pushSave = hierarchy_cast<PushSaveInstruction *>(inst); pushSave) {
+            // TODO: Encode a REX prefix.
+            assert(pushSave->operandRegister >= 0);
+            encode8(text, 0x50 + pushSave->operandRegister);
+        } else if (auto popRestore = hierarchy_cast<PopRestoreInstruction *>(inst); popRestore) {
+            // TODO: Encode a REX prefix.
+            assert(popRestore->operandRegister >= 0);
+            encode8(text, 0x58 + popRestore->operandRegister);
+        } else if (auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
             assert(getRegister(movMC->result.get()) >= 0);
             // TODO: Encode a REX prefix.
             encode8(text, 0xB8 + getRegister(movMC->result.get()));
