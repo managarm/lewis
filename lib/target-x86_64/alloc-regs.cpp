@@ -34,7 +34,7 @@ enum SubBlock {
 };
 
 // We need to be able to distinguish the allocation situation before and after an instruction.
-// The atInstruction value is not really used.
+// atInstruction is used for clobbers.
 enum SubInstruction {
     beforeInstruction = -1,
     atInstruction = 0,
@@ -202,7 +202,7 @@ void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
 
     // Chose the best free register according to its cost.
     int bestRegister = -1;
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < 16; i++) {
         if (!(compound->possibleRegisters & (1 << i)))
             continue;
         if (!state[i].allocationPossible)
@@ -301,6 +301,9 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
 
             collected.push_back(compound);
         } else if (auto call = hierarchy_cast<CallInstruction *>(*it); call) {
+            std::array<int, 6> operandRegs{0x80, 0x40, 0x04, 0x02, 0x100, 0x200};
+            std::array<int, 2> clobberRegs{0x400, 0x800};
+
             // Add a PseudoMove instruction for the operands.
             auto pseudoMove = bb->insertInstruction(it,
                     std::make_unique<PseudoMoveMultipleInstruction>(call->numOperands()));
@@ -310,11 +313,10 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
                 call->operand(i) = pseudoMoveResult;
 
                 auto copyCompound = new LiveCompound;
-                switch (i) {
-                case 0: copyCompound->possibleRegisters = 0x80; break;
-                case 1: copyCompound->possibleRegisters = 0x40; break;
-                default: assert(!"TODO: Implement correct ABI for arbitrary arguments");
-                }
+                if (i < operandRegs.size())
+                    copyCompound->possibleRegisters = operandRegs[i];
+                else
+                    assert(!"TODO: Implement correct ABI for arbitrary arguments");
 
                 auto copyInterval = new LiveInterval;
                 copyCompound->intervals.push_back(copyInterval);
@@ -325,7 +327,34 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
                 collected.push_back(copyCompound);
             }
 
+            // Add LiveIntervals for clobbered operand registers.
+            for (size_t i = call->numOperands(); i < operandRegs.size(); ++i) {
+                auto clobberCompound = new LiveCompound;
+                clobberCompound->possibleRegisters = operandRegs[i];
+
+                auto clobberInterval = new LiveInterval;
+                clobberCompound->intervals.push_back(clobberInterval);
+                clobberInterval->compound = clobberCompound;
+                clobberInterval->originPc = ProgramCounter{bb, inBlock, *it, atInstruction};
+                clobberInterval->finalPc = ProgramCounter{bb, inBlock, *it, atInstruction};
+                _restrictedQueue.push(clobberCompound);
+            }
+
+            // Add LiveIntervals for other clobbers.
+            for (size_t i = 0; i < clobberRegs.size(); ++i) {
+                auto clobberCompound = new LiveCompound;
+                clobberCompound->possibleRegisters = clobberRegs[i];
+
+                auto clobberInterval = new LiveInterval;
+                clobberCompound->intervals.push_back(clobberInterval);
+                clobberInterval->compound = clobberCompound;
+                clobberInterval->originPc = ProgramCounter{bb, inBlock, *it, atInstruction};
+                clobberInterval->finalPc = ProgramCounter{bb, inBlock, *it, atInstruction};
+                _restrictedQueue.push(clobberCompound);
+            }
+
             // Add LiveIntervals for the results.
+            // TODO: When we make results optional, we still have to add a clobber for RAX.
             auto resultCompound = new LiveCompound;
             resultCompound->possibleRegisters = 0x1;
 
@@ -502,14 +531,17 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
     _allocated.for_overlaps([&] (LiveInterval *interval) {
         std::cout << "    Value " << interval->associatedValue
                 << " (from phi node) is live" << std::endl;
-        liveMap.insert({interval->associatedValue, interval});
-        setRegister(interval->associatedValue, interval->compound->allocatedRegister);
+        if (interval->associatedValue) {
+            liveMap.insert({interval->associatedValue, interval});
+            setRegister(interval->associatedValue, interval->compound->allocatedRegister);
+        }
     }, {bb, beforeBlock, nullptr, afterInstruction});
 
     for (auto it = bb->instructions().begin(); it != bb->instructions().end(); ) {
         std::cout << "    Fixing instruction " << *it << ", kind "
                 << (*it)->kind << std::endl;
         // Determine the current register allocation.
+        // TODO: This does not take clobbers into account.
         LiveInterval *currentState[16] = {};
 
         for (auto entry : liveMap) {
@@ -527,12 +559,15 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             if (interval->originPc.instruction != *it)
                 return;
             std::cout << "        Instruction returns " << interval->associatedValue << std::endl;
-            resultMap.insert({interval->associatedValue, interval});
+            if (interval->associatedValue)
+                resultMap.insert({interval->associatedValue, interval});
         }, {bb, inBlock, *it, afterInstruction});
 
         // Helper function to fuse a result interval (from resultMap)
         // into a live interval (from liveMap).
         auto fuseResultInterval = [&] (LiveInterval *interval, LiveInterval *into) {
+            assert(interval->associatedValue && into->associatedValue);
+
             auto resIt = resultMap.find(interval->associatedValue);
             assert(resIt != resultMap.end());
             resultMap.erase(resIt);
@@ -546,6 +581,8 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
         // Helper function to rewrite the associatedValue of a result interval (from resultMap).
         auto reassociateResultInterval = [&] (LiveInterval *interval, Value *newValue) {
+            assert(interval->associatedValue);
+
             auto resIt = resultMap.find(interval->associatedValue);
             assert(resIt != resultMap.end());
             resultMap.erase(resIt);

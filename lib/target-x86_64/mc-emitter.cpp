@@ -21,6 +21,7 @@ OperandSize getOperandSize(Value *v) {
 
 int getRegister(Value *v) {
     if (auto modeMValue = hierarchy_cast<ModeMValue *>(v); modeMValue) {
+        assert(modeMValue->modeRegister < 8);
         return modeMValue->modeRegister;
     } else {
         assert(!"Unexpected x86_64 IR value");
