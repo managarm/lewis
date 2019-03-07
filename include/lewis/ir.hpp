@@ -178,6 +178,9 @@ struct Value {
     Value(ValueKindType valueKind_)
     : valueKind{valueKind_}, _type{nullptr}, _origin{nullptr} { }
 
+    // Required for destruction through a base class pointer. TODO: Rework this?
+    virtual ~Value() { }
+
     Type *getType() { return _type; }
     void setType(Type *type) { _type = type; }
 
@@ -239,6 +242,9 @@ struct Instruction {
     Instruction(InstructionKindType kind_)
     : kind{kind_} { }
 
+    // Required for destruction through a base class pointer. TODO: Rework this?
+    virtual ~Instruction() { }
+
     const InstructionKindType kind;
 
 private:
@@ -290,6 +296,9 @@ namespace branch_kinds {
 struct Branch {
     Branch(BranchKindType kind_)
     : kind{kind_} { }
+
+    // Required for destruction through a base class pointer. TODO: Rework this?
+    virtual ~Branch() { }
 
     const BranchKindType kind;
 };
@@ -481,6 +490,9 @@ struct PhiNode {
 
     PhiNode(PhiKindType phiKind_)
     : phiKind{phiKind_}, value{nullptr} { }
+
+    // Required for destruction through a base class pointer. TODO: Rework this?
+    virtual ~PhiNode() { }
 
     const PhiKindType phiKind;
     ValueOrigin value;
