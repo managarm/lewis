@@ -320,9 +320,12 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
     std::vector<LiveCompound *> collected;
     std::unordered_map<Value *, LiveCompound *> compoundMap;
 
+    // Make sure to skip new instructions inserted at the beginning of the block.
+    auto instructionsBegin = bb->instructions().begin();
+
     // Generate LiveIntervals for PhiNodes.
     for (auto phi : bb->phis()) {
-        auto pseudoMove = bb->insertInstruction(bb->instructions().begin(),
+        auto pseudoMove = bb->insertInstruction(instructionsBegin,
                 std::make_unique<PseudoMoveSingleInstruction>());
         auto pseudoMoveResult = pseudoMove->result.set(cloneModeValue(phi->value.get()));
         phi->value.get()->replaceAllUses(pseudoMoveResult);
@@ -372,7 +375,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
     }
 
     // Generate LiveIntervals for instructions.
-    for (auto it = bb->instructions().begin(); it != bb->instructions().end(); ++it) {
+    for (auto it = instructionsBegin; it != bb->instructions().end(); ++it) {
         if (auto movMC = hierarchy_cast<MovMCInstruction *>(*it); movMC) {
             auto compound = new LiveCompound;
             compound->possibleRegisters = 0xFCF;
