@@ -43,6 +43,28 @@ enum SubInstruction {
 
 // Represents a point in the program at which we perform register allocation.
 struct ProgramCounter {
+    friend std::ostream &operator<< (std::ostream &out, const ProgramCounter &pc) {
+        assert(pc.block);
+        if (pc.subBlock == beforeBlock) {
+            out << "before block";
+        } else if (pc.subBlock == afterBlock) {
+            out << "after block";
+        } else {
+            assert(pc.subBlock == inBlock);
+            assert(pc.instruction);
+            if (pc.subInstruction == beforeInstruction) {
+                out << "before ";
+            } else if (pc.subInstruction == afterInstruction) {
+                out << "after ";
+            } else {
+                assert(pc.subInstruction == atInstruction);
+                out << "at ";
+            }
+            out << pc.block->indexOfInstruction(pc.instruction);
+        }
+        return out;
+    }
+
     bool operator== (const ProgramCounter &other) const {
         return block == other.block
                 && subBlock == other.subBlock
@@ -79,6 +101,12 @@ struct ProgramCounter {
 struct LiveCompound;
 
 struct LiveInterval {
+    LiveInterval() = default;
+
+    LiveInterval(const LiveInterval &) = delete;
+
+    LiveInterval &operator= (const LiveInterval &) = delete;
+
     // Value that is allocated to the register.
     // Note that for LiveCompounds that represent phi nodes, the associatedValue is
     // different in each source BasicBlock.
@@ -103,6 +131,12 @@ struct LiveInterval {
 
 // Encapsulates multiple LiveIntervals that are always allocated to the same register.
 struct LiveCompound {
+    LiveCompound() = default;
+
+    LiveCompound(const LiveCompound &) = delete;
+
+    LiveCompound &operator= (const LiveCompound &) = delete;
+
     frg::intrusive_list<
         LiveInterval,
         frg::locate_member<
@@ -183,6 +217,8 @@ void AllocateRegistersImpl::run() {
 }
 
 void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
+    assert(compound->allocatedRegister < 0 && "Compound is allocated twice");
+
     // Determine which allocations would be possible.
     struct AllocationState {
         // TODO: Compute the allocation cost.
@@ -192,11 +228,12 @@ void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
 
     AllocationState state[16];
 
-    std::cout << "Allocating compound" << std::endl;
+    std::cout << "Allocating compound " << compound << ", possible registers: "
+            << compound->possibleRegisters << std::endl;
     for (auto interval : compound->intervals) {
-        std::cout << "    Interval " << interval->associatedValue
-                << " at [" << interval->originPc.instruction
-                << ", " << interval->finalPc.instruction << "]" << std::endl;
+        std::cout << "    Interval " << interval << " for value " << interval->associatedValue
+                << " at [" << interval->originPc << ", " << interval->finalPc << "]" << std::endl;
+
         _allocated.for_overlaps([&] (LiveInterval *overlap) {
             auto overlapRegister = overlap->compound->allocatedRegister;
             assert(overlapRegister >= 0);
@@ -394,6 +431,10 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
 
             _restrictedQueue.push(resultCompound);
             collected.push_back(retvalCopyCompound);
+
+            // Skip the PseudoMove instruction.
+            ++it;
+            assert(*it == pseudoMoveRetval);
         } else {
             std::cout << "lewis: Unknown instruction kind " << (*it)->kind << std::endl;
             assert(!"Unexpected IR instruction");
@@ -482,6 +523,9 @@ void AllocateRegistersImpl::_collectPhiIntervals(BasicBlock *bb) {
         phi->value.get()->replaceAllUses(pseudoMoveResult);
         pseudoMove->operand = phi->value.get();
 
+        auto copyCompound = new LiveCompound;
+        copyCompound->possibleRegisters = 0xF0F;
+
         if (auto argument = hierarchy_cast<ArgumentPhi *>(phi); argument) {
             auto nodeCompound = new LiveCompound;
             nodeCompound->possibleRegisters = 0x80;
@@ -526,9 +570,6 @@ void AllocateRegistersImpl::_collectPhiIntervals(BasicBlock *bb) {
         } else {
             assert(!"Unexpected IR phi");
         }
-
-        auto copyCompound = new LiveCompound;
-        copyCompound->possibleRegisters = 0xF0F;
 
         auto copyInterval = new LiveInterval;
         copyCompound->intervals.push_back(copyInterval);
@@ -594,13 +635,14 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
         std::cout << "    Value " << interval->associatedValue
                 << " (from phi node) is live" << std::endl;
         if (interval->associatedValue) {
-            liveMap.insert({interval->associatedValue, interval});
+            if (interval->finalPc != ProgramCounter{bb, beforeBlock, nullptr, afterInstruction})
+                liveMap.insert({interval->associatedValue, interval});
             setRegister(interval->associatedValue, interval->compound->allocatedRegister);
         }
     }, {bb, beforeBlock, nullptr, afterInstruction});
 
     for (auto it = bb->instructions().begin(); it != bb->instructions().end(); ) {
-        std::cout << "    Fixing instruction " << *it << ", kind "
+        std::cout << "    Fixing instruction " << bb->indexOfInstruction(*it) << ", kind "
                 << (*it)->kind << std::endl;
         // Determine the current register allocation.
         // TODO: This does not take clobbers into account.
@@ -637,7 +679,10 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
             assert((into->finalPc == ProgramCounter{bb, inBlock, *it, beforeInstruction}));
             _allocated.remove(into);
-            into->finalPc = interval->finalPc;
+            // TODO: In this case, the finalPc now points to a non-existing instruction.
+            //       Find the second to last PC and update finalPc correctly.
+            if(interval->finalPc != ProgramCounter{bb, inBlock, *it, afterInstruction})
+                into->finalPc = interval->finalPc;
             _allocated.insert(into);
         };
 
@@ -915,6 +960,10 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             } else {
                 assert(finalPc.block == bb);
                 // TODO: This does not handle phi values correctly if there are never used.
+                if (finalPc <= ProgramCounter{bb, inBlock, *it, afterInstruction})
+                    std::cerr << "Value " << liveIt->first << " with final PC of " << finalPc
+                            << " is still alive after instruction "
+                            << bb->indexOfInstruction(*it) << std::endl;
                 assert(!(finalPc <= ProgramCounter{bb, inBlock, *it, afterInstruction}));
                 ++liveIt;
             }

@@ -245,6 +245,10 @@ struct Instruction {
     // Required for destruction through a base class pointer. TODO: Rework this?
     virtual ~Instruction() { }
 
+    BasicBlock *basicBlock() {
+        return _bb;
+    }
+
     const InstructionKindType kind;
 
 private:
