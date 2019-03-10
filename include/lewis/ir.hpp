@@ -19,6 +19,7 @@ struct Value;
 struct Instruction;
 struct DataFlowSource;
 struct DataFlowSink;
+struct PhiNode;
 struct BasicBlock;
 
 //---------------------------------------------------------------------------------------
@@ -466,11 +467,19 @@ struct DataFlowSink {
         DataFlowSink *_sink;
     };
 
+    DataFlowSink(PhiNode *phi)
+    : _phi{phi} { }
+
+    PhiNode *phiNode() {
+        return _phi;
+    }
+
     EdgeRange edges() {
         return EdgeRange{this};
     }
 
 private:
+    PhiNode *_phi;
     EdgeList _edges;
 };
 
@@ -524,7 +533,7 @@ struct ArgumentPhi : PhiNode, CastableIfPhiKind<ArgumentPhi, phi_kinds::argument
 
 struct DataFlowPhi : PhiNode, CastableIfPhiKind<DataFlowPhi, phi_kinds::dataFlow> {
     DataFlowPhi()
-    : PhiNode{phi_kinds::dataFlow} { }
+    : PhiNode{phi_kinds::dataFlow}, sink{this} { }
 
     DataFlowSink sink;
 };

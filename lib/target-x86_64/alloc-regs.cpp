@@ -171,7 +171,7 @@ private:
 
     Function *_fn;
 
-    std::unordered_map<BasicBlock *, std::unique_ptr<Instruction>> _dataFlowPivots;
+    std::unordered_map<PhiNode *, LiveCompound *> _phiCompounds;
 
     // Stores all intervals that still need to be allocated.
     // TODO: Prioritize the intervals in some way, e.g. by use density.
@@ -200,21 +200,11 @@ private:
 };
 
 void AllocateRegistersImpl::run() {
-    // Generate a PseudoMove instruction for data-flow PhiNodes at the end of each block.
-    // Modify all data-flow PhiNodes to take *only* this PseudoMove as input.
+    // LiveCompounds for phi nodes span multiple basic blocks.
+    // Create them here and set them up in _collectBlockIntervals().
     for (auto bb : _fn->blocks()) {
-        std::vector<DataFlowEdge *> edges; // Need to index edges.
-        for (auto edge : bb->source.edges())
-            edges.push_back(edge);
-
-        if (!edges.empty()) {
-            auto pseudoMove = std::make_unique<PseudoMoveMultipleInstruction>(edges.size());
-            for (size_t i = 0; i < edges.size(); i++) {
-                pseudoMove->operand(i) = edges[i]->alias.get();
-                edges[i]->alias = pseudoMove->result(i).set(cloneModeValue(pseudoMove->operand(i).get()));
-            }
-            _dataFlowPivots.insert({bb, std::move(pseudoMove)});
-        }
+        for (auto phi : bb->phis())
+            _phiCompounds.insert({phi, new LiveCompound});
     }
 
     for (auto bb : _fn->blocks())
@@ -338,11 +328,11 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         phi->value.get()->replaceAllUses(pseudoMoveResult);
         pseudoMove->operand = phi->value.get();
 
-        auto copyCompound = new LiveCompound;
-        copyCompound->possibleRegisters = 0xFCF;
-
+        // Setup the LiveCompound that was reserved earlier.
+        // Note that for data-flow phis, we amend the compound with intervals
+        // in other basic blocks later on.
+        auto nodeCompound = _phiCompounds.at(phi);
         if (auto argument = hierarchy_cast<ArgumentPhi *>(phi); argument) {
-            auto nodeCompound = new LiveCompound;
             nodeCompound->possibleRegisters = 0x80;
 
             auto nodeInterval = new LiveInterval;
@@ -352,11 +342,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             nodeInterval->originPc = {bb, beforeBlock, nullptr, afterInstruction};
             nodeInterval->finalPc = {bb, inBlock, pseudoMove, beforeInstruction};
             assert(nodeInterval->associatedValue);
-
-            _restrictedQueue.push(nodeCompound);
-            _penalties.push_back(Penalty{{nodeCompound, copyCompound}});
         } else if (auto dataFlow = hierarchy_cast<DataFlowPhi *>(phi); dataFlow) {
-            auto nodeCompound = new LiveCompound;
             nodeCompound->possibleRegisters = 0xFCF;
 
             auto nodeInterval = new LiveInterval;
@@ -366,27 +352,12 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             nodeInterval->originPc = {bb, beforeBlock, nullptr, afterInstruction};
             nodeInterval->finalPc = {bb, inBlock, pseudoMove, beforeInstruction};
             assert(nodeInterval->associatedValue);
-
-            // By construction, we only see values from the PseudoMove instruction
-            // that was generated in _collectBlockIntervals().
-            for (auto edge : dataFlow->sink.edges()) {
-                auto sourceInterval = new LiveInterval;
-                assert(edge->alias);
-                nodeCompound->intervals.push_back(sourceInterval);
-                sourceInterval->associatedValue = edge->alias.get();
-                sourceInterval->compound = nodeCompound;
-                assert(sourceInterval->associatedValue);
-                sourceInterval->originPc = ProgramCounter{edge->source()->block(), inBlock,
-                        edge->alias.get()->origin()->instruction(), afterInstruction};
-                sourceInterval->finalPc = ProgramCounter{edge->source()->block(), afterBlock,
-                        nullptr, afterInstruction};
-            }
-
-            _unrestrictedQueue.push(nodeCompound);
-            _penalties.push_back(Penalty{{nodeCompound, copyCompound}});
         } else {
             assert(!"Unexpected IR phi");
         }
+
+        auto copyCompound = new LiveCompound;
+        copyCompound->possibleRegisters = 0xFCF;
 
         auto copyInterval = new LiveInterval;
         copyCompound->intervals.push_back(copyInterval);
@@ -395,7 +366,9 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         copyInterval->originPc = {bb, inBlock, pseudoMove, afterInstruction};
 
         compoundMap.insert({pseudoMoveResult, copyCompound});
+        _unrestrictedQueue.push(nodeCompound);
         collected.push_back(copyCompound);
+        _penalties.push_back(Penalty{{nodeCompound, copyCompound}});
     }
 
     // Generate LiveIntervals for instructions.
@@ -584,11 +557,33 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         }
     }
 
-    // Insert the data-flow source instruction.
-    auto pit = _dataFlowPivots.find(bb);
-    if(pit != _dataFlowPivots.end()) {
-        bb->insertInstruction(std::move(pit->second));
-        _dataFlowPivots.erase(pit);
+    // Generate a PseudoMove instruction for data-flow PhiNodes at the end of the block.
+    // Modify all data-flow PhiNodes to take *only* this PseudoMove as input.
+    std::vector<DataFlowEdge *> edges; // Need to index edges.
+    for (auto edge : bb->source.edges())
+        edges.push_back(edge);
+
+    if (!edges.empty()) {
+        auto pseudoMove = bb->insertInstruction(
+                std::make_unique<PseudoMoveMultipleInstruction>(edges.size()));
+        for (size_t i = 0; i < edges.size(); i++) {
+            auto originalAlias = edges[i]->alias.get();
+            pseudoMove->operand(i) = originalAlias;
+            auto pseudoMoveResult = pseudoMove->result(i).set(cloneModeValue(originalAlias));
+            edges[i]->alias = pseudoMoveResult;
+
+            // Add an interval to the PhiNode's compound.
+            auto nodeCompound = _phiCompounds.at(edges[i]->sink()->phiNode());
+            auto sourceInterval = new LiveInterval;
+            nodeCompound->intervals.push_back(sourceInterval);
+            sourceInterval->associatedValue = pseudoMoveResult;
+            sourceInterval->compound = nodeCompound;
+            assert(sourceInterval->associatedValue);
+            sourceInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
+            sourceInterval->finalPc = ProgramCounter{bb, afterBlock, nullptr, afterInstruction};
+
+            _penalties.push_back(Penalty{{compoundMap.at(originalAlias), nodeCompound}});
+        }
     }
 
     // Generate a PseudoMove instruction to function returns.
