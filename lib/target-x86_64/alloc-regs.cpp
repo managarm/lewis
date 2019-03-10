@@ -10,6 +10,8 @@
 namespace lewis::targets::x86_64 {
 
 namespace {
+    constexpr bool ignorePenalties = false;
+
     std::unique_ptr<Value> cloneModeValue(Value *value) {
         auto modeM = hierarchy_cast<ModeMValue *>(value);
         assert(modeM);
@@ -151,6 +153,10 @@ struct LiveCompound {
     uint64_t possibleRegisters = 0;
 };
 
+struct Penalty {
+    std::array<LiveCompound *, 2> compounds;
+};
+
 struct AllocateRegistersImpl : AllocateRegistersPass {
     AllocateRegistersImpl(Function *fn)
     : _fn{fn} { }
@@ -171,6 +177,8 @@ private:
     std::queue<LiveCompound *> _restrictedQueue;
     std::queue<LiveCompound *> _unrestrictedQueue;
 
+    std::vector<Penalty> _penalties;
+
     // Stores all intervals that have already been allocated.
     frg::interval_tree<
         LiveInterval,
@@ -184,6 +192,10 @@ private:
     // Bitmask of all registers that are used.
     // The function prologue is constructed from this.
     uint64_t _usedRegisters = 0;
+
+    // Some statistics to quantify the quality of the allocation.
+    int _achievedCost = 0;
+    int _numRegisterMoves = 0;
 };
 
 void AllocateRegistersImpl::run() {
@@ -214,6 +226,9 @@ void AllocateRegistersImpl::run() {
 
     for (auto bb : _fn->blocks())
         _establishAllocation(bb);
+
+    std::cout << "Allocation cost is " << _achievedCost << " units" << std::endl;
+    std::cout << "Allocation requires " << _numRegisterMoves << " moves" << std::endl;
 }
 
 void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
@@ -221,11 +236,11 @@ void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
 
     // Determine which allocations would be possible.
     struct AllocationState {
-        // TODO: Compute the allocation cost.
-        int cost = 0;
+        int relativeCost = 0;
         bool allocationPossible = true;
     };
 
+    int baseCost = 0;
     AllocationState state[16];
 
     std::cout << "Allocating compound " << compound << ", possible registers: "
@@ -241,6 +256,29 @@ void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
         }, interval->originPc, interval->finalPc);
     }
 
+    // Compute allocation penalties.
+    for(auto penalty : _penalties) {
+        LiveCompound *other;
+        if (compound == penalty.compounds[0]) {
+            other = penalty.compounds[1];
+        } else if(compound == penalty.compounds[1]) {
+            other = penalty.compounds[0];
+        } else {
+            continue;
+        }
+
+        if (other->allocatedRegister < 0)
+            continue;
+
+        std::cout << "    Want to allocate to register " << other->allocatedRegister
+                << std::endl;
+
+        // Instead of increasing cost everywhere, we increment the base cost
+        // and add a negative contribution of a single register.
+        baseCost += 1;
+        state[other->allocatedRegister].relativeCost -= 1;
+    }
+
     // Chose the best free register according to its cost.
     int bestRegister = -1;
     for (int i = 0; i < 16; i++) {
@@ -248,19 +286,27 @@ void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
             continue;
         if (!state[i].allocationPossible)
             continue;
-        if (bestRegister < 0 || state[bestRegister].cost < state[i].cost) {
+
+        std::cout << "    Register " << i << " has cost "
+                << (baseCost + state[i].relativeCost) << std::endl;
+
+        if (bestRegister < 0) {
             bestRegister = i;
-            break;
+        } else if (!ignorePenalties && state[bestRegister].relativeCost
+                > state[i].relativeCost) {
+            bestRegister = i;
         }
     }
     assert(bestRegister >= 0 && "Could not find possible register for allocation");
 
     compound->allocatedRegister = bestRegister;
-    std::cout << "    Allocating to register " << compound->allocatedRegister << std::endl;
+    std::cout << "    Allocating to register " << compound->allocatedRegister
+            << ", cost: " << (baseCost + state[bestRegister].relativeCost) << std::endl;
 
     for (auto interval : compound->intervals)
         _allocated.insert(interval);
     _usedRegisters |= 1 << bestRegister;
+    _achievedCost += baseCost + state[bestRegister].relativeCost;
 }
 
 // Called before allocation. Generates all LiveIntervals and adds them to the queue.
@@ -431,6 +477,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
 
             _restrictedQueue.push(resultCompound);
             collected.push_back(retvalCopyCompound);
+            _penalties.push_back(Penalty{{resultCompound, retvalCopyCompound}});
 
             // Skip the PseudoMove instruction.
             ++it;
@@ -539,6 +586,7 @@ void AllocateRegistersImpl::_collectPhiIntervals(BasicBlock *bb) {
             assert(nodeInterval->associatedValue);
 
             _restrictedQueue.push(nodeCompound);
+            _penalties.push_back(Penalty{{nodeCompound, copyCompound}});
         } else if (auto dataFlow = hierarchy_cast<DataFlowPhi *>(phi); dataFlow) {
             auto nodeCompound = new LiveCompound;
             nodeCompound->possibleRegisters = 0xF0F;
@@ -567,6 +615,7 @@ void AllocateRegistersImpl::_collectPhiIntervals(BasicBlock *bb) {
             }
 
             _unrestrictedQueue.push(nodeCompound);
+            _penalties.push_back(Penalty{{nodeCompound, copyCompound}});
         } else {
             assert(!"Unexpected IR phi");
         }
@@ -722,6 +771,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
                 reassociateResultInterval(resultInterval, movMRResult);
                 bb->insertInstruction(it, std::move(movMR));
+                _numRegisterMoves++;
             }
 
             rewroteInstruction = true;
@@ -863,6 +913,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
                 reassociateResultInterval(resultInterval, moveResult);
                 bb->insertInstruction(it, std::move(move));
+                _numRegisterMoves++;
 
                 // Update the MoveChain structs.
                 targetChain->didMoveToThisTarget = true;
