@@ -741,36 +741,33 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                     << interval->associatedValue << std::endl;
         }
 
-        // Helper function to fuse a result interval (from resultMap)
-        // into a live interval (from liveMap).
-        auto fuseResultInterval = [&] (LiveInterval *interval, LiveInterval *into) {
-            assert(interval->associatedValue && into->associatedValue);
+        // Fixes the originPc and finalPc of existing intervals when a move is lowered.
+        auto fixMoveIntervals = [&] (LiveInterval *operandInterval, LiveInterval *resultInterval,
+                Instruction *lowerInstruction) {
 
-            auto resIt = resultMap.find(interval->associatedValue);
-            assert(resIt != resultMap.end());
-            resultMap.erase(resIt);
-            _allocated.remove(interval);
+            auto beforeLower = ProgramCounter{bb, inBlock, lowerInstruction, beforeInstruction};
+            if (operandInterval->finalPc == ProgramCounter{bb, inBlock, *it, beforeInstruction})
+                operandInterval->finalPc = beforeLower;
 
-            assert((into->finalPc == ProgramCounter{bb, inBlock, *it, beforeInstruction}));
-            _allocated.remove(into);
-            // TODO: In this case, the finalPc now points to a non-existing instruction.
-            //       Find the second to last PC and update finalPc correctly.
-            if(interval->finalPc != ProgramCounter{bb, inBlock, *it, afterInstruction})
-                into->finalPc = interval->finalPc;
-            _allocated.insert(into);
+            auto afterLower = ProgramCounter{bb, inBlock, lowerInstruction, afterInstruction};
+            assert(resultInterval->originPc
+                    == (ProgramCounter{bb, inBlock, *it, afterInstruction}));
+            if (resultInterval->originPc == resultInterval->finalPc) {
+                resultInterval->originPc = afterLower;
+                resultInterval->finalPc = afterLower;
+            } else
+                resultInterval->originPc = afterLower;
         };
 
         // Helper function to rewrite the associatedValue of a result interval (from resultMap).
-        auto reassociateResultInterval = [&] (LiveInterval *interval, Value *newValue) {
+        auto reassociateResult = [&] (LiveInterval *interval, Value *newValue) {
+            // Update the associatedValue.
             assert(interval->associatedValue);
-
             auto resIt = resultMap.find(interval->associatedValue);
             assert(resIt != resultMap.end());
             resultMap.erase(resIt);
-            _allocated.remove(interval);
 
             interval->associatedValue = newValue;
-            resultMap.insert({newValue, interval});
         };
 
         // Rewrite pseudo instructions to real instructions.
@@ -782,9 +779,12 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             if (operandInterval->compound->allocatedRegister
                     == resultInterval->compound->allocatedRegister) {
                 std::cout << "        Rewriting pseudoMoveSingle (fuse)" << std::endl;
-                pseudoMoveSingle->result.get()->replaceAllUses(pseudoMoveSingle->operand.get());
+                auto nop = std::make_unique<NopInstruction>();
 
-                fuseResultInterval(resultInterval, operandInterval);
+                pseudoMoveSingle->result.get()->replaceAllUses(pseudoMoveSingle->operand.get());
+                fixMoveIntervals(operandInterval, resultInterval, nop.get());
+                reassociateResult(resultInterval, operandInterval->associatedValue);
+                bb->insertInstruction(it, std::move(nop));
             }else{
                 std::cout << "        Rewriting pseudoMoveSingle (reassociate)" << std::endl;
                 auto movMR = std::make_unique<MovMRInstruction>(pseudoMoveSingle->operand.get());
@@ -794,7 +794,8 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 pseudoMoveSingle->operand = nullptr;
                 pseudoMoveSingle->result.get()->replaceAllUses(movMRResult);
 
-                reassociateResultInterval(resultInterval, movMRResult);
+                fixMoveIntervals(operandInterval, resultInterval, movMR.get());
+                reassociateResult(resultInterval, movMRResult);
                 bb->insertInstruction(it, std::move(movMR));
                 _numRegisterMoves++;
             }
@@ -892,7 +893,12 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 assert(operandRegister >= 0);
                 assert(resultRegister >= 0);
                 if (operandRegister == resultRegister) {
-                    fuseResultInterval(resultInterval, operandInterval);
+                    auto nop = std::make_unique<NopInstruction>();
+
+                    pseudoMoveMultiple->result(i).get()->replaceAllUses(pseudoMoveMultiple->operand(i).get());
+                    fixMoveIntervals(operandInterval, resultInterval, nop.get());
+                    reassociateResult(resultInterval, operandInterval->associatedValue);
+                    bb->insertInstruction(it, std::move(nop));
                     continue;
                 }
 
@@ -935,8 +941,8 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
                 pseudoMoveMultiple->operand(index) = nullptr;
                 pseudoMoveMultiple->result(index).get()->replaceAllUses(moveResult);
-
-                reassociateResultInterval(resultInterval, moveResult);
+                fixMoveIntervals(operandInterval, resultInterval, move.get());
+                reassociateResult(resultInterval, moveResult);
                 bb->insertInstruction(it, std::move(move));
                 _numRegisterMoves++;
 

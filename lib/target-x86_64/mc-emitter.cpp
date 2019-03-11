@@ -136,7 +136,9 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
     util::ByteEncoder plt{&_pltSection->buffer};
 
     for (auto inst : bb->instructions()) {
-        if (auto pushSave = hierarchy_cast<PushSaveInstruction *>(inst); pushSave) {
+        if (auto nop = hierarchy_cast<NopInstruction *>(inst); nop) {
+            // Do not emit any code.
+        } else if (auto pushSave = hierarchy_cast<PushSaveInstruction *>(inst); pushSave) {
             // TODO: Encode a REX prefix.
             assert(pushSave->operandRegister >= 0);
             encode8(text, 0x50 + pushSave->operandRegister);

@@ -22,6 +22,7 @@ namespace arch_instruction_kinds {
     // C: Immediate constant.
     enum : InstructionKindType {
         unused = instruction_kinds::kindsForX86,
+        nop,
         pseudoMoveSingle,
         pseudoMoveMultiple,
         pushSave,
@@ -62,6 +63,14 @@ struct ModeMValue
 
     OperandSize operandSize = OperandSize::null;
     int modeRegister = -1;
+};
+
+struct NopInstruction
+: Instruction,
+        CastableIfInstructionKind<NopInstruction,
+                arch_instruction_kinds::nop> {
+    NopInstruction()
+    : Instruction{arch_instruction_kinds::nop} { }
 };
 
 struct PushSaveInstruction
