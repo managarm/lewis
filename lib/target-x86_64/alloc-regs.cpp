@@ -787,16 +787,13 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 bb->insertInstruction(it, std::move(nop));
             }else{
                 std::cout << "        Rewriting pseudoMoveSingle (reassociate)" << std::endl;
-                auto movMR = std::make_unique<MovMRInstruction>(pseudoMoveSingle->operand.get());
-                auto movMRResult = movMR->result.set(cloneModeValue(pseudoMoveSingle->operand.get()));
-                setRegister(movMRResult, resultInterval->compound->allocatedRegister);
-
+                auto move = std::make_unique<MovMRInstruction>(pseudoMoveSingle->operand.get());
+                auto moveResult = pseudoMoveSingle->result.reset();
                 pseudoMoveSingle->operand = nullptr;
-                pseudoMoveSingle->result.get()->replaceAllUses(movMRResult);
+                move->result.set(std::move(moveResult));
 
-                fixMoveIntervals(operandInterval, resultInterval, movMR.get());
-                reassociateResult(resultInterval, movMRResult);
-                bb->insertInstruction(it, std::move(movMR));
+                fixMoveIntervals(operandInterval, resultInterval, move.get());
+                bb->insertInstruction(it, std::move(move));
                 _numRegisterMoves++;
             }
 
@@ -936,13 +933,11 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 // Emit the new move instruction.
                 auto move = std::make_unique<MovMRInstruction>(
                         pseudoMoveMultiple->operand(index).get());
-                auto moveResult = move->result.set(cloneModeValue(pseudoMoveMultiple->operand(index).get()));
-                setRegister(moveResult, resultInterval->compound->allocatedRegister);
-
+                auto moveResult = pseudoMoveMultiple->result(index).reset();
                 pseudoMoveMultiple->operand(index) = nullptr;
-                pseudoMoveMultiple->result(index).get()->replaceAllUses(moveResult);
+                move->result.set(std::move(moveResult));
+
                 fixMoveIntervals(operandInterval, resultInterval, move.get());
-                reassociateResult(resultInterval, moveResult);
                 bb->insertInstruction(it, std::move(move));
                 _numRegisterMoves++;
 

@@ -28,6 +28,14 @@ void ValueOrigin::doSet(std::unique_ptr<Value> v) {
     v.release();
 }
 
+std::unique_ptr<Value> ValueOrigin::reset() {
+    assert(_value->_origin == this);
+    auto v = _value;
+    v->_origin = nullptr;
+    _value = nullptr;
+    return std::unique_ptr<Value>{v};
+}
+
 void ValueUse::assign(Value *v) {
     if (_ref) {
         auto it = _ref->_useList.iterator_to(this);

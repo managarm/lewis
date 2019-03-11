@@ -80,6 +80,8 @@ struct ValueOrigin {
         return set(std::make_unique<T>(std::forward<Args>(args)...));
     }
 
+    std::unique_ptr<Value> reset();
+
 private:
     Instruction *_inst;
     Value *_value;
