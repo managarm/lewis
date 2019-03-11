@@ -94,6 +94,13 @@ struct ProgramCounter {
         return (*this < other) || (*this == other);
     }
 
+    bool operator> (const ProgramCounter &other) const {
+        return !(*this <= other);
+    }
+    bool operator>= (const ProgramCounter &other) const {
+        return !(*this < other);
+    }
+
     BasicBlock *block = nullptr;
     SubBlock subBlock = inBlock;
     Instruction *instruction = nullptr;
@@ -309,8 +316,11 @@ void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
     std::cout << "    Allocating to register " << compound->allocatedRegister
             << ", cost: " << (baseCost + state[bestRegister].relativeCost) << std::endl;
 
-    for (auto interval : compound->intervals)
+    for (auto interval : compound->intervals) {
+        if (interval->associatedValue)
+            setRegister(interval->associatedValue, compound->allocatedRegister);
         _allocated.insert(interval);
+    }
     _usedRegisters |= 1 << bestRegister;
     _achievedCost += baseCost + state[bestRegister].relativeCost;
 }
@@ -698,20 +708,17 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
     std::unordered_map<Value *, LiveInterval *> resultMap;
     std::cout << "Fixing basic block " << bb << std::endl;
 
-    // Find all intervals that originate from phis.
-    _allocated.for_overlaps([&] (LiveInterval *interval) {
-        std::cout << "    Value " << interval->associatedValue
-                << " (from phi node) is live" << std::endl;
-        if (interval->associatedValue) {
-            if (interval->finalPc != ProgramCounter{bb, beforeBlock, nullptr, afterInstruction})
-                liveMap.insert({interval->associatedValue, interval});
-            setRegister(interval->associatedValue, interval->compound->allocatedRegister);
-        }
-    }, {bb, beforeBlock, nullptr, afterInstruction});
-
     for (auto it = bb->instructions().begin(); it != bb->instructions().end(); ) {
         std::cout << "    Fixing instruction " << bb->indexOfInstruction(*it) << ", kind "
                 << (*it)->kind << std::endl;
+        // Fill the liveMap and the resultMap.
+        _allocated.for_overlaps([&] (LiveInterval *interval) {
+            if (interval->originPc < ProgramCounter{bb, inBlock, *it, beforeInstruction})
+                liveMap.insert({interval->associatedValue, interval});
+            else if (interval->originPc == ProgramCounter{bb, inBlock, *it, afterInstruction})
+                resultMap.insert({interval->associatedValue, interval});
+        }, {bb, inBlock, *it, beforeInstruction}, {bb, inBlock, *it, afterInstruction});
+
         // Determine the current register allocation.
         // TODO: This does not take clobbers into account.
         LiveInterval *currentState[16] = {};
@@ -722,18 +729,15 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             assert(currentRegister >= 0);
             assert(!currentState[currentRegister]);
             currentState[currentRegister] = interval;
-            std::cout << "    Current state[" << currentRegister << "]: "
+            std::cout << "        Current state[" << currentRegister << "]: "
                     << interval->associatedValue << std::endl;
         }
 
-        // Find all intervals that originate from the current PC.
-        _allocated.for_overlaps([&] (LiveInterval *interval) {
-            if (interval->originPc.instruction != *it)
-                return;
-            std::cout << "        Instruction returns " << interval->associatedValue << std::endl;
-            if (interval->associatedValue)
-                resultMap.insert({interval->associatedValue, interval});
-        }, {bb, inBlock, *it, afterInstruction});
+        for (auto entry : liveMap) {
+            auto interval = entry.second;
+            std::cout << "        Instruction returns "
+                    << interval->associatedValue << std::endl;
+        }
 
         // Helper function to fuse a result interval (from resultMap)
         // into a live interval (from liveMap).
@@ -1016,50 +1020,14 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             rewroteInstruction = true;
         }
 
-        // Fix the allocation for all results of the current instruction.
-        for (auto [value, interval] : resultMap)
-            setRegister(value, interval->compound->allocatedRegister);
-
-        // Erase all intervals that end before the current instruction.
-        // TODO: In principle, the loops to erase intervals can be accelerated by maintaining
-        //       a tree of intervals, ordered by their finalPc. For now, we just use a linear scan.
-        for (auto liveIt = liveMap.begin(); liveIt != liveMap.end(); ) {
-            auto finalPc = liveIt->second->finalPc;
-            if (finalPc == ProgramCounter{bb, inBlock, *it, beforeInstruction}) {
-                liveIt = liveMap.erase(liveIt);
-            } else {
-                assert(finalPc.block == bb);
-                // TODO: This does not handle phi values correctly if there are never used.
-                if (finalPc <= ProgramCounter{bb, inBlock, *it, afterInstruction})
-                    std::cerr << "Value " << liveIt->first << " with final PC of " << finalPc
-                            << " is still alive after instruction "
-                            << bb->indexOfInstruction(*it) << std::endl;
-                assert(!(finalPc <= ProgramCounter{bb, inBlock, *it, afterInstruction}));
-                ++liveIt;
-            }
-        }
-
-        // Merge all intervals that originate from the previous PC.
-        liveMap.merge(resultMap);
-        assert(resultMap.empty());
-
-        // Erase all intervals that end after the current instruction.
-        for (auto liveIt = liveMap.begin(); liveIt != liveMap.end(); ) {
-            auto finalPc = liveIt->second->finalPc;
-            if (finalPc == ProgramCounter{bb, inBlock, *it, afterInstruction}) {
-                liveIt = liveMap.erase(liveIt);
-            } else {
-                assert(finalPc.block == bb);
-                assert(!(finalPc <= ProgramCounter{bb, inBlock, *it, afterInstruction}));
-                ++liveIt;
-            }
-        }
-
         auto nextIt = it;
         ++nextIt;
         if (rewroteInstruction)
             bb->eraseInstruction(it);
         it = nextIt;
+
+        liveMap.clear();
+        resultMap.clear();
     }
 
     // Generate the function epilogue.
