@@ -12,6 +12,8 @@ namespace lewis::targets::x86_64 {
 namespace {
     constexpr bool ignorePenalties = false;
 
+    constexpr uint64_t gprMask = 0xFCF;
+
     std::unique_ptr<Value> cloneModeValue(Value *value) {
         auto modeM = hierarchy_cast<ModeMValue *>(value);
         assert(modeM);
@@ -356,7 +358,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             nodeInterval->finalPc = {bb, inBlock, pseudoMove, beforeInstruction};
             assert(nodeInterval->associatedValue);
         } else if (auto dataFlow = hierarchy_cast<DataFlowPhi *>(phi); dataFlow) {
-            nodeCompound->possibleRegisters = 0xFCF;
+            nodeCompound->possibleRegisters = gprMask;
 
             auto nodeInterval = new LiveInterval;
             nodeCompound->intervals.push_back(nodeInterval);
@@ -370,7 +372,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         }
 
         auto copyCompound = new LiveCompound;
-        copyCompound->possibleRegisters = 0xFCF;
+        copyCompound->possibleRegisters = gprMask;
 
         auto copyInterval = new LiveInterval;
         copyCompound->intervals.push_back(copyInterval);
@@ -388,7 +390,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
     for (auto it = instructionsBegin; it != bb->instructions().end(); ++it) {
         if (auto movMC = hierarchy_cast<MovMCInstruction *>(*it); movMC) {
             auto compound = new LiveCompound;
-            compound->possibleRegisters = 0xFCF;
+            compound->possibleRegisters = gprMask;
 
             auto interval = new LiveInterval;
             compound->intervals.push_back(interval);
@@ -402,7 +404,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         } else if (auto unaryMOverwrite = hierarchy_cast<UnaryMOverwriteInstruction *>(*it);
                 unaryMOverwrite) {
             auto compound = new LiveCompound;
-            compound->possibleRegisters = 0xFCF;
+            compound->possibleRegisters = gprMask;
 
             auto resultInterval = new LiveInterval;
             compound->intervals.push_back(resultInterval);
@@ -422,7 +424,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             unaryMInPlace->primary = pseudoMoveResult;
 
             auto compound = new LiveCompound;
-            compound->possibleRegisters = 0xFCF;
+            compound->possibleRegisters = gprMask;
 
             auto copyInterval = new LiveInterval;
             compound->intervals.push_back(copyInterval);
@@ -449,7 +451,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             binaryMRInPlace->primary = pseudoMoveResult;
 
             auto compound = new LiveCompound;
-            compound->possibleRegisters = 0xFCF;
+            compound->possibleRegisters = gprMask;
 
             auto copyInterval = new LiveInterval;
             compound->intervals.push_back(copyInterval);
@@ -548,7 +550,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
 
             // Add a LiveInterval for a copy of the result.
             auto retvalCopyCompound = new LiveCompound;
-            retvalCopyCompound->possibleRegisters = 0xFCF;
+            retvalCopyCompound->possibleRegisters = gprMask;
 
             auto retvalCopyInterval = new LiveInterval;
             retvalCopyCompound->intervals.push_back(retvalCopyInterval);
@@ -633,7 +635,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         jnz->operand = pseudoMoveResult;
 
         auto copyCompound = new LiveCompound;
-        copyCompound->possibleRegisters = 0xFCF;
+        copyCompound->possibleRegisters = gprMask;
 
         auto copyInterval = new LiveInterval;
         copyCompound->intervals.push_back(copyInterval);
