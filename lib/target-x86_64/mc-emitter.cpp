@@ -21,7 +21,6 @@ OperandSize getOperandSize(Value *v) {
 
 int getRegister(Value *v) {
     if (auto modeMValue = hierarchy_cast<ModeMValue *>(v); modeMValue) {
-        assert(modeMValue->modeRegister < 8);
         return modeMValue->modeRegister;
     } else {
         assert(!"Unexpected x86_64 IR value");
@@ -37,38 +36,63 @@ void encodeRawRex(util::ByteEncoder &enc, OperandSize os, int r, int x, int b) {
         encode8(enc, 0x40 | (w << 3) | (r << 2) | (x << 1) | b);
 }
 
-void encodeRawModRm(util::ByteEncoder &enc, int mod, int u, int x) {
-    assert(mod <= 3 && x <= 7 && u <= 7);
-    encode8(enc, (mod << 6) | (x << 3) | u);
+// mod: Value of the 'mod' field.
+// m: Value of the 'M' field.
+// x: Value of the 'R' field (also used as extra bit for the opcode).
+void encodeRawModRm(util::ByteEncoder &enc, int mod, int m, int x) {
+    assert(mod <= 3 && x <= 7 && m <= 7);
+    encode8(enc, (mod << 6) | (x << 3) | m);
 }
 
-void encodeRex(util::ByteEncoder &enc, Value *mv) {
-    auto os = getOperandSize(mv);
-    // TODO: Handle r8-r15 by setting REX.{X,B}.
-    // REX.R is not used here.
-    encodeRawRex(enc, os, 0, 0, 0);
+// b: Value of the 'base' field.
+// i: Value of the 'index' field.
+// s: Value of the 'SS' field.
+void encodeRawSib(util::ByteEncoder &enc, int b, int i, int s) {
+    assert(s <= 3 && i <= 7 && b <= 7);
+    encode8(enc, (s << 6) | (i << 3) | b);
 }
 
-void encodeModRm(util::ByteEncoder &enc, Value *mv, int extra) {
-    auto mr = getRegister(mv);
-    assert(mr >= 0);
-    assert(extra >= 0 && extra <= 0x7);
-    encodeRawModRm(enc, 3, mr, extra);
-}
+struct ModRmEncoding {
+    ModRmEncoding(Value *mv, Value *rv)
+    : _mv{mv}, _rv{rv}, _xop{-1} { }
 
-void encodeRex(util::ByteEncoder &enc, Value *mv, Value *rv) {
-    auto os = getOperandSize(rv);
-    // TODO: Handle r8-r15 by setting REX.{R,X,B}.
-    encodeRawRex(enc, os, 0, 0, 0);
-}
+    ModRmEncoding(Value *mv, int xop)
+    : _mv{mv}, _rv{nullptr}, _xop{xop} {
+        assert(xop <= 7);
+    }
 
-void encodeModRm(util::ByteEncoder &enc, Value *mv, Value *rv) {
-    auto mr = getRegister(mv);
-    auto rr = getRegister(rv);
-    assert(mr >= 0);
-    assert(rr >= 0);
-    encodeRawModRm(enc, 3, mr, rr);
-}
+    void encodeRex(util::ByteEncoder &enc) {
+        auto os = getOperandSize(_rv);
+        auto mr = getRegister(_mv);
+        assert(mr >= 0);
+        encodeRawRex(enc, os, _x() >= 8, 0, mr >= 8);
+    }
+
+    void encodeModRmSib(util::ByteEncoder &enc) {
+        auto mr = getRegister(_mv);
+        assert(mr >= 0);
+        encodeRawModRm(enc, 3, mr & 7, _x() & 7);
+    }
+
+private:
+    int _x() {
+        if(_rv) {
+            auto rr = getRegister(_rv);
+            assert(rr >= 0);
+            return rr;
+        }else{
+            assert(_xop >= 0);
+            return _xop;
+        }
+    }
+
+    // "M"-part of the ModRm. This may be (i) a register, (ii) a memory address
+    // or (iii) a scale-index-base memory access.
+    Value *_mv;
+    // "R"-part of the ModRm. This my be (i) a register or (ii) an extension of the opcode.
+    Value *_rv;
+    int _xop;
+};
 
 void encodeModeWithDisp(util::ByteEncoder &enc, Value *mv, int32_t disp, Value *rv) {
     auto mr = getRegister(mv);
@@ -77,11 +101,11 @@ void encodeModeWithDisp(util::ByteEncoder &enc, Value *mv, int32_t disp, Value *
     assert(rr >= 0);
     if (disp >= -128 && disp <= 127) {
         // Encode the displacement in 8 bits.
-        encodeRawModRm(enc, 1, mr, rr);
+        encodeRawModRm(enc, 1, mr & 7, rr & 7);
         encode8(enc, disp);
     } else {
         // Encode the displacement in 32 bits.
-        encodeRawModRm(enc, 2, mr, rr);
+        encodeRawModRm(enc, 2, mr & 7, rr & 7);
         encode32(enc, disp);
     }
 }
@@ -139,44 +163,61 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
         if (auto nop = hierarchy_cast<NopInstruction *>(inst); nop) {
             // Do not emit any code.
         } else if (auto pushSave = hierarchy_cast<PushSaveInstruction *>(inst); pushSave) {
-            // TODO: Encode a REX prefix.
             assert(pushSave->operandRegister >= 0);
-            encode8(text, 0x50 + pushSave->operandRegister);
+            if (pushSave->operandRegister < 8) {
+                encode8(text, 0x50 + pushSave->operandRegister);
+            } else {
+                encodeRawRex(text, OperandSize::dword, 0, 0, 1);
+                encode8(text, 0xFF);
+                encodeRawModRm(text, 3, pushSave->operandRegister & 7, 6);
+            }
         } else if (auto popRestore = hierarchy_cast<PopRestoreInstruction *>(inst); popRestore) {
-            // TODO: Encode a REX prefix.
             assert(popRestore->operandRegister >= 0);
-            encode8(text, 0x58 + popRestore->operandRegister);
+            if (popRestore->operandRegister < 8) {
+                encode8(text, 0x58 + popRestore->operandRegister);
+            } else {
+                encodeRawRex(text, OperandSize::dword, 0, 0, 1);
+                encode8(text, 0x8F);
+                encodeRawModRm(text, 3, popRestore->operandRegister & 7, 0);
+            }
         } else if (auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
-            assert(getRegister(movMC->result.get()) >= 0);
-            // TODO: Encode a REX prefix.
-            encode8(text, 0xB8 + getRegister(movMC->result.get()));
+            auto rr = getRegister(movMC->result.get());
+            assert(rr >= 0);
+            assert(rr < 8); // TODO: Lift this by generating REX.
+            encode8(text, 0xB8 + rr);
             encode32(text, movMC->value);
         } else if (auto movMR = hierarchy_cast<MovMRInstruction *>(inst); movMR) {
-            encodeRex(text, movMR->result.get(), movMR->operand.get());
+            ModRmEncoding modRm{movMR->result.get(), movMR->operand.get()};
+            modRm.encodeRex(text);
             encode8(text, 0x89);
-            encodeModRm(text, movMR->result.get(), movMR->operand.get());
+            modRm.encodeModRmSib(text);
         } else if (auto movRMWithOffset = hierarchy_cast<MovRMWithOffsetInstruction *>(inst);
                 movRMWithOffset) {
-            encodeRex(text, movRMWithOffset->operand.get(), movRMWithOffset->result.get());
+            ModRmEncoding modRm{movRMWithOffset->operand.get(), movRMWithOffset->result.get()};
+            modRm.encodeRex(text);
             encode8(text, 0x8B);
             encodeModeWithDisp(text, movRMWithOffset->operand.get(), movRMWithOffset->offset,
                     movRMWithOffset->result.get());
         } else if (auto xchgMR = hierarchy_cast<XchgMRInstruction *>(inst); xchgMR) {
-            encodeRex(text, xchgMR->firstResult.get(), xchgMR->secondResult.get());
+            ModRmEncoding modRm{xchgMR->firstResult.get(), xchgMR->secondResult.get()};
+            modRm.encodeRex(text);
             encode8(text, 0x87);
-            encodeModRm(text, xchgMR->firstResult.get(), xchgMR->secondResult.get());
+            modRm.encodeModRmSib(text);
         } else if (auto negM = hierarchy_cast<NegMInstruction *>(inst); negM) {
-            encodeRex(text, negM->result.get());
+            ModRmEncoding modRm{negM->result.get(), 3};
+            modRm.encodeRex(text);
             encode8(text, 0xF7);
-            encodeModRm(text, negM->result.get(), 3);
+            modRm.encodeModRmSib(text);
         } else if (auto addMR = hierarchy_cast<AddMRInstruction *>(inst); addMR) {
-            encodeRex(text, addMR->result.get(), addMR->secondary.get());
+            ModRmEncoding modRm{addMR->result.get(), addMR->secondary.get()};
+            modRm.encodeRex(text);
             encode8(text, 0x01);
-            encodeModRm(text, addMR->result.get(), addMR->secondary.get());
+            modRm.encodeModRmSib(text);
         } else if (auto andMR = hierarchy_cast<AndMRInstruction *>(inst); andMR) {
-            encodeRex(text, andMR->result.get(), andMR->secondary.get());
+            ModRmEncoding modRm{andMR->result.get(), andMR->secondary.get()};
+            modRm.encodeRex(text);
             encode8(text, 0x21);
-            encodeModRm(text, andMR->result.get(), andMR->secondary.get());
+            modRm.encodeModRmSib(text);
         }else if (auto call = hierarchy_cast<CallInstruction *>(inst); call) {
             auto string = _elf->addString(std::make_unique<elf::String>(call->function));
             auto symbol = _elf->addSymbol(std::make_unique<elf::Symbol>());
@@ -244,9 +285,10 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
         encode8(text, 0xE9);
         encode32(text, 0);
     } else if (auto jnz = hierarchy_cast<JnzBranch *>(branch); jnz) {
-        encodeRex(text, jnz->operand.get(), jnz->operand.get());
+        ModRmEncoding modRm{jnz->operand.get(), jnz->operand.get()};
+        modRm.encodeRex(text);
         encode8(text, 0x85);
-        encodeModRm(text, jnz->operand.get(), jnz->operand.get());
+        modRm.encodeModRmSib(text);
 
         auto ifJump = _elf->addInternalRelocation(std::make_unique<elf::Relocation>());
         ifJump->section = textSection;
