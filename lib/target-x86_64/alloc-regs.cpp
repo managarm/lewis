@@ -12,7 +12,8 @@ namespace lewis::targets::x86_64 {
 namespace {
     constexpr bool ignorePenalties = false;
 
-    constexpr uint64_t gprMask = 0xFCF;
+    // Every GPR except for RSP.
+    constexpr uint64_t gprMask = 0xFFEF;
 
     std::unique_ptr<Value> cloneModeValue(Value *value) {
         auto registerMode = hierarchy_cast<RegisterMode *>(value);

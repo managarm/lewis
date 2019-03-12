@@ -14,6 +14,8 @@ MachineCodeEmitter::MachineCodeEmitter(Function *fn, elf::Object *elf)
 OperandSize getOperandSize(Value *v) {
     if (auto registerMode = hierarchy_cast<RegisterMode *>(v); registerMode) {
         return registerMode->operandSize;
+    } else if (auto baseDisp = hierarchy_cast<BaseDispMemoryMode *>(v); baseDisp) {
+        return baseDisp->operandSize;
     } else {
         assert(!"Unexpected x86_64 IR value");
     }
@@ -62,7 +64,9 @@ struct ModRmEncoding {
     }
 
     void encodeRex(util::ByteEncoder &enc) {
-        auto os = getOperandSize(_rv);
+        auto os = getOperandSize(_mv);
+        if (_rv)
+            assert(os == getOperandSize(_rv));
 
         int b;
         if (auto registerMode = hierarchy_cast<RegisterMode *>(_mv); registerMode) {
@@ -85,6 +89,8 @@ struct ModRmEncoding {
             encodeRawModRm(enc, 3, registerMode->modeRegister & 7, _x() & 7);
         } else if (auto baseDisp = hierarchy_cast<BaseDispMemoryMode *>(_mv); baseDisp) {
             assert(baseDisp->baseRegister >= 0);
+            assert((baseDisp->baseRegister & 7) != 5
+                    && "RSP/R12 need an SIB-byte to encode BaseDispMemoryMode");
             if (baseDisp->disp >= -128 && baseDisp->disp <= 127) {
                 // Encode the displacement in 8 bits.
                 encodeRawModRm(enc, 1, baseDisp->baseRegister & 7, _x() & 7);
@@ -196,8 +202,14 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
         } else if (auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
             auto rr = getRegister(movMC->result.get());
             assert(rr >= 0);
-            assert(rr < 8); // TODO: Lift this by generating REX.
-            encode8(text, 0xB8 + rr);
+            if (rr < 8) {
+                encode8(text, 0xB8 + rr);
+            } else {
+                ModRmEncoding modRm{movMC->result.get(), 0};
+                modRm.encodeRex(text);
+                encode8(text, 0xC7);
+                modRm.encodeModRmSib(text);
+            }
             encode32(text, movMC->value);
         } else if (auto movMR = hierarchy_cast<MovMRInstruction *>(inst); movMR) {
             ModRmEncoding modRm{movMR->result.get(), movMR->operand.get()};
