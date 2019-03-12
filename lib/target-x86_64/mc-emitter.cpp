@@ -202,12 +202,14 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
         } else if (auto decrementStack = hierarchy_cast<DecrementStackInstruction *>(inst);
                 decrementStack) {
             assert(decrementStack->value >= 0 && decrementStack->value <= 127);
+            encodeRawRex(text, OperandSize::qword, 0, 0, 0);
             encode8(text, 0x83);
             encodeRawModRm(text, 3, 4, 5);
             encode8(text, decrementStack->value);
         } else if (auto incrementStack = hierarchy_cast<IncrementStackInstruction *>(inst);
                 incrementStack) {
             assert(incrementStack->value >= 0 && incrementStack->value <= 127);
+            encodeRawRex(text, OperandSize::qword, 0, 0, 0);
             encode8(text, 0x83);
             encodeRawModRm(text, 3, 4, 0);
             encode8(text, incrementStack->value);
