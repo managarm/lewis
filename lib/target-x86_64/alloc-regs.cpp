@@ -722,17 +722,26 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
     auto saveMask = callerRegs & _usedRegisters;
 
     // Stack space required by this function.
-    auto stackSpace = __builtin_popcountl(saveMask) * 8;
-    assert((stackSpace & 0xF) && "TODO: adjust the stack to be aligned on call");
+    size_t frameSpace = 0;
+    auto saveSpace = __builtin_popcountl(saveMask) * 8;
+
+    // Make sure that the stack is aligned according to the ABI.
+    if (!((frameSpace + saveSpace) & 0xF))
+        frameSpace += 8;
+    assert(((frameSpace + saveSpace) & 0xF) == 8);
 
     // Generate the function prologue.
+    auto instructionsBegin = bb->instructions().begin();
     if (bb == *_fn->blocks().begin()) {
         for (int i = 0; i < 16; i++) {
             if (!(saveMask & (1 << i)))
                 continue;
-            bb->insertInstruction(bb->instructions().begin(),
+            bb->insertInstruction(instructionsBegin,
                     std::make_unique<PushSaveInstruction>(i));
         }
+        if (frameSpace)
+            bb->insertInstruction(instructionsBegin,
+                    std::make_unique<DecrementStackInstruction>(frameSpace));
     }
 
     std::unordered_map<Value *, LiveInterval *> liveMap;
@@ -1069,6 +1078,9 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 continue;
             bb->insertInstruction(std::make_unique<PopRestoreInstruction>(i));
         }
+        if (frameSpace)
+            bb->insertInstruction(instructionsBegin,
+                    std::make_unique<IncrementStackInstruction>(frameSpace));
     }
 }
 

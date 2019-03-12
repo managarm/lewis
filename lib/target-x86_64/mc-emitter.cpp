@@ -89,7 +89,7 @@ struct ModRmEncoding {
             encodeRawModRm(enc, 3, registerMode->modeRegister & 7, _x() & 7);
         } else if (auto baseDisp = hierarchy_cast<BaseDispMemoryMode *>(_mv); baseDisp) {
             assert(baseDisp->baseRegister >= 0);
-            assert((baseDisp->baseRegister & 7) != 5
+            assert((baseDisp->baseRegister & 7) != 4
                     && "RSP/R12 need an SIB-byte to encode BaseDispMemoryMode");
             if (baseDisp->disp >= -128 && baseDisp->disp <= 127) {
                 // Encode the displacement in 8 bits.
@@ -199,6 +199,18 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
                 encode8(text, 0x8F);
                 encodeRawModRm(text, 3, popRestore->operandRegister & 7, 0);
             }
+        } else if (auto decrementStack = hierarchy_cast<DecrementStackInstruction *>(inst);
+                decrementStack) {
+            assert(decrementStack->value >= 0 && decrementStack->value <= 127);
+            encode8(text, 0x83);
+            encodeRawModRm(text, 3, 4, 5);
+            encode8(text, decrementStack->value);
+        } else if (auto incrementStack = hierarchy_cast<IncrementStackInstruction *>(inst);
+                incrementStack) {
+            assert(incrementStack->value >= 0 && incrementStack->value <= 127);
+            encode8(text, 0x83);
+            encodeRawModRm(text, 3, 4, 0);
+            encode8(text, incrementStack->value);
         } else if (auto movMC = hierarchy_cast<MovMCInstruction *>(inst); movMC) {
             auto rr = getRegister(movMC->result.get());
             assert(rr >= 0);

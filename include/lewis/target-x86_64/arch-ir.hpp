@@ -28,6 +28,8 @@ namespace arch_instruction_kinds {
         pseudoMoveMultiple,
         pushSave,
         popRestore,
+        decrementStack,
+        incrementStack,
         xchgMR,
         movMC,
         movMR,
@@ -116,6 +118,26 @@ struct PopRestoreInstruction
     : Instruction{arch_instruction_kinds::popRestore}, operandRegister{operandRegister_} { }
 
     int operandRegister;
+};
+
+struct DecrementStackInstruction
+: Instruction,
+        CastableIfInstructionKind<DecrementStackInstruction,
+                arch_instruction_kinds::decrementStack> {
+    DecrementStackInstruction(ptrdiff_t value_)
+    : Instruction{arch_instruction_kinds::decrementStack}, value{value_} { }
+
+    ptrdiff_t value;
+};
+
+struct IncrementStackInstruction
+: Instruction,
+        CastableIfInstructionKind<IncrementStackInstruction,
+                arch_instruction_kinds::incrementStack> {
+    IncrementStackInstruction(ptrdiff_t value_)
+    : Instruction{arch_instruction_kinds::incrementStack}, value{value_} { }
+
+    ptrdiff_t value;
 };
 
 // Instruction that takes a single operand and overwrites a mode M result.
