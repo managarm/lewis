@@ -22,7 +22,7 @@ void LowerCodeImpl::run() {
     auto lowerValue = [] (Value *value) {
         auto localValue = hierarchy_cast<LocalValue *>(value);
         assert(localValue);
-        auto lower = std::make_unique<ModeMValue>();
+        auto lower = std::make_unique<RegisterMode>();
         if (localValue->getType()->typeKind == type_kinds::pointer) {
             lower->operandSize = OperandSize::qword;
         } else if (localValue->getType()->typeKind == type_kinds::int32) {
@@ -35,10 +35,27 @@ void LowerCodeImpl::run() {
         return lower;
     };
 
+    auto lowerValueWithOffset = [] (Value *value, ptrdiff_t offset) {
+        auto localValue = hierarchy_cast<LocalValue *>(value);
+        assert(localValue);
+        auto lower = std::make_unique<BaseDispMemoryMode>();
+        if (localValue->getType()->typeKind == type_kinds::pointer) {
+            lower->operandSize = OperandSize::qword;
+        } else if (localValue->getType()->typeKind == type_kinds::int32) {
+            lower->operandSize = OperandSize::dword;
+        } else if (localValue->getType()->typeKind == type_kinds::int64) {
+            lower->operandSize = OperandSize::qword;
+        } else {
+            assert(!"Unexpected type kind");
+        }
+        lower->disp = offset;
+        return lower;
+    };
+
     for (auto it = _bb->phis().begin(); it != _bb->phis().end(); ++it) {
-        auto modeMValue = lowerValue((*it)->value.get());
-        (*it)->value.get()->replaceAllUses(modeMValue.get());
-        (*it)->value.set(std::move(modeMValue));
+        auto lowerPhi = lowerValue((*it)->value.get());
+        (*it)->value.get()->replaceAllUses(lowerPhi.get());
+        (*it)->value.set(std::move(lowerPhi));
     }
 
     for (auto it = _bb->instructions().begin(); it != _bb->instructions().end(); ++it) {
@@ -50,13 +67,20 @@ void LowerCodeImpl::run() {
 
             it = _bb->replaceInstruction(it, std::move(lower));
         } else if (auto loadOffset = hierarchy_cast<LoadOffsetInstruction *>(*it); loadOffset) {
-            auto lower = std::make_unique<MovRMWithOffsetInstruction>(loadOffset->operand.get(),
-                    loadOffset->offset);
-            auto lowerResult = lower->result.set(lowerValue(loadOffset->result.get()));
-            loadOffset->result.get()->replaceAllUses(lowerResult);
+            auto lowerOffset = std::make_unique<DefineOffsetInstruction>(loadOffset->operand.get());
+            auto offsetValue = lowerOffset->result.set(lowerValueWithOffset(
+                    loadOffset->result.get(), loadOffset->offset));
+
+            auto lowerMov = std::make_unique<MovRMInstruction>(offsetValue);
+            auto resultValue = lowerMov->result.set(lowerValue(loadOffset->result.get()));
+            loadOffset->result.get()->replaceAllUses(resultValue);
 
             loadOffset->operand = nullptr;
-            it = _bb->replaceInstruction(it, std::move(lower));
+            it = _bb->replaceInstruction(it, std::move(lowerOffset));
+            auto nit = it;
+            ++nit;
+            _bb->insertInstruction(nit, std::move(lowerMov));
+            ++it;
         } else if (auto unaryMath = hierarchy_cast<UnaryMathInstruction *>(*it); unaryMath) {
             std::unique_ptr<UnaryMInPlaceInstruction> lower;
             if (unaryMath->opcode == UnaryMathOpcode::negate) {

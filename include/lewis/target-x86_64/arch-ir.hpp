@@ -10,7 +10,8 @@ namespace lewis::targets::x86_64 {
 namespace arch_value_kinds {
     enum : ValueKindType {
         unused = value_kinds::kindsForX86,
-        modeMResult
+        registerMode,
+        baseDispMemoryMode
     };
 }
 
@@ -30,9 +31,10 @@ namespace arch_instruction_kinds {
         xchgMR,
         movMC,
         movMR,
+        movRM,
         // TODO: We certainly want to drop the "WithOffset" specialization.
         //       This should probably be done after we rewrite Values and make them more useful.
-        movRMWithOffset,
+        defineOffset,
         negM,
         addMR,
         andMR,
@@ -55,14 +57,25 @@ enum OperandSize {
     qword
 };
 
-struct ModeMValue
+struct RegisterMode
 : Value,
-        CastableIfValueKind<ModeMValue, arch_value_kinds::modeMResult> {
-    ModeMValue()
-    : Value{arch_value_kinds::modeMResult} { }
+        CastableIfValueKind<RegisterMode, arch_value_kinds::registerMode> {
+    RegisterMode()
+    : Value{arch_value_kinds::registerMode} { }
 
     OperandSize operandSize = OperandSize::null;
     int modeRegister = -1;
+};
+
+struct BaseDispMemoryMode
+: Value,
+        CastableIfValueKind<BaseDispMemoryMode, arch_value_kinds::baseDispMemoryMode> {
+    BaseDispMemoryMode()
+    : Value{arch_value_kinds::baseDispMemoryMode} { }
+
+    OperandSize operandSize = OperandSize::null;
+    int baseRegister = -1;
+    ptrdiff_t disp = 0;
 };
 
 struct NopInstruction
@@ -71,6 +84,18 @@ struct NopInstruction
                 arch_instruction_kinds::nop> {
     NopInstruction()
     : Instruction{arch_instruction_kinds::nop} { }
+};
+
+struct DefineOffsetInstruction
+: Instruction,
+        CastableIfInstructionKind<DefineOffsetInstruction,
+                arch_instruction_kinds::defineOffset> {
+    DefineOffsetInstruction(Value *operand_ = nullptr)
+    : Instruction{arch_instruction_kinds::defineOffset},
+            result{this}, operand{this, operand_} { }
+
+    ValueOrigin result;
+    ValueUse operand;
 };
 
 struct PushSaveInstruction
@@ -99,7 +124,7 @@ struct UnaryMOverwriteInstruction
         CastableIfInstructionKind<UnaryMOverwriteInstruction,
                 arch_instruction_kinds::pseudoMoveSingle,
                 arch_instruction_kinds::movMR,
-                arch_instruction_kinds::movRMWithOffset> {
+                arch_instruction_kinds::movRM> {
     UnaryMOverwriteInstruction(InstructionKindType kind, Value *operand_ = nullptr)
     : Instruction{kind}, result{this}, operand{this, operand_} { }
 
@@ -186,22 +211,18 @@ struct MovMCInstruction
     uint64_t value = 0;
 };
 
+struct MovRMInstruction
+: UnaryMOverwriteInstruction,
+        CastableIfInstructionKind<MovRMInstruction, arch_instruction_kinds::movRM> {
+    MovRMInstruction(Value *operand_ = nullptr)
+    : UnaryMOverwriteInstruction{arch_instruction_kinds::movRM, operand_} { }
+};
+
 struct MovMRInstruction
 : UnaryMOverwriteInstruction,
         CastableIfInstructionKind<MovMRInstruction, arch_instruction_kinds::movMR> {
     MovMRInstruction(Value *operand_ = nullptr)
     : UnaryMOverwriteInstruction{arch_instruction_kinds::movMR, operand_} { }
-};
-
-struct MovRMWithOffsetInstruction
-: UnaryMOverwriteInstruction,
-        CastableIfInstructionKind<MovRMWithOffsetInstruction,
-                arch_instruction_kinds::movRMWithOffset> {
-    MovRMWithOffsetInstruction(Value *operand_ = nullptr, int32_t offset_ = 0)
-    : UnaryMOverwriteInstruction{arch_instruction_kinds::movRMWithOffset, operand_},
-            offset{offset_} { }
-
-    int32_t offset;
 };
 
 struct XchgMRInstruction

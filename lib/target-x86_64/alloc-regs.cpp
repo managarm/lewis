@@ -15,16 +15,18 @@ namespace {
     constexpr uint64_t gprMask = 0xFCF;
 
     std::unique_ptr<Value> cloneModeValue(Value *value) {
-        auto modeM = hierarchy_cast<ModeMValue *>(value);
-        assert(modeM);
-        auto clone = std::make_unique<ModeMValue>();
-        clone->operandSize = modeM->operandSize;
+        auto registerMode = hierarchy_cast<RegisterMode *>(value);
+        assert(registerMode);
+        auto clone = std::make_unique<RegisterMode>();
+        clone->operandSize = registerMode->operandSize;
         return clone;
     }
 
     void setRegister(Value *v, int registerIdx) {
-        if (auto modeMValue = hierarchy_cast<ModeMValue *>(v); modeMValue) {
-            modeMValue->modeRegister = registerIdx;
+        if (auto registerMode = hierarchy_cast<RegisterMode *>(v); registerMode) {
+            registerMode->modeRegister = registerIdx;
+        } else if (auto baseDisp = hierarchy_cast<BaseDispMemoryMode *>(v); baseDisp) {
+            baseDisp->baseRegister = registerIdx;
         } else {
             assert(!"Unexpected x86_64 IR value");
         }
@@ -388,7 +390,33 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
 
     // Generate LiveIntervals for instructions.
     for (auto it = instructionsBegin; it != bb->instructions().end(); ++it) {
-        if (auto movMC = hierarchy_cast<MovMCInstruction *>(*it); movMC) {
+        if (auto defineOffset = hierarchy_cast<DefineOffsetInstruction *>(*it); defineOffset) {
+            auto originalOperand = defineOffset->operand.get();
+            auto pseudoMove = bb->insertInstruction(it,
+                    std::make_unique<PseudoMoveSingleInstruction>(originalOperand));
+            auto pseudoMoveResult = pseudoMove->result.set(cloneModeValue(originalOperand));
+            defineOffset->operand = pseudoMoveResult;
+
+            auto compound = new LiveCompound;
+            compound->possibleRegisters = gprMask;
+
+            auto copyInterval = new LiveInterval;
+            compound->intervals.push_back(copyInterval);
+            copyInterval->associatedValue = pseudoMoveResult;
+            copyInterval->compound = compound;
+            copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
+
+            auto resultInterval = new LiveInterval;
+            compound->intervals.push_back(resultInterval);
+            resultInterval->associatedValue = defineOffset->result.get();
+            resultInterval->compound = compound;
+            resultInterval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
+            assert(resultInterval->associatedValue);
+
+            compoundMap.insert({defineOffset->result.get(), compound});
+            collected.push_back(compound);
+            _penalties.push_back(Penalty{{compoundMap.at(originalOperand), compound}});
+        } else if (auto movMC = hierarchy_cast<MovMCInstruction *>(*it); movMC) {
             auto compound = new LiveCompound;
             compound->possibleRegisters = gprMask;
 

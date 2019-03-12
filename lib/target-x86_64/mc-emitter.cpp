@@ -12,16 +12,16 @@ MachineCodeEmitter::MachineCodeEmitter(Function *fn, elf::Object *elf)
 : _fn{fn}, _elf{elf} { }
 
 OperandSize getOperandSize(Value *v) {
-    if (auto modeMValue = hierarchy_cast<ModeMValue *>(v); modeMValue) {
-        return modeMValue->operandSize;
+    if (auto registerMode = hierarchy_cast<RegisterMode *>(v); registerMode) {
+        return registerMode->operandSize;
     } else {
         assert(!"Unexpected x86_64 IR value");
     }
 }
 
 int getRegister(Value *v) {
-    if (auto modeMValue = hierarchy_cast<ModeMValue *>(v); modeMValue) {
-        return modeMValue->modeRegister;
+    if (auto registerMode = hierarchy_cast<RegisterMode *>(v); registerMode) {
+        return registerMode->modeRegister;
     } else {
         assert(!"Unexpected x86_64 IR value");
     }
@@ -63,15 +63,42 @@ struct ModRmEncoding {
 
     void encodeRex(util::ByteEncoder &enc) {
         auto os = getOperandSize(_rv);
-        auto mr = getRegister(_mv);
-        assert(mr >= 0);
-        encodeRawRex(enc, os, _x() >= 8, 0, mr >= 8);
+
+        int b;
+        if (auto registerMode = hierarchy_cast<RegisterMode *>(_mv); registerMode) {
+            assert(registerMode->modeRegister >= 0);
+            b = registerMode->modeRegister >= 8;
+        } else if (auto baseDisp = hierarchy_cast<BaseDispMemoryMode *>(_mv); baseDisp) {
+            assert(baseDisp->baseRegister >= 0);
+            b = baseDisp->baseRegister >= 8;
+        } else {
+            assert(!"Unexpected x86_64 IR value");
+            abort();
+        }
+
+        encodeRawRex(enc, os, _x() >= 8, 0, b);
     }
 
     void encodeModRmSib(util::ByteEncoder &enc) {
-        auto mr = getRegister(_mv);
-        assert(mr >= 0);
-        encodeRawModRm(enc, 3, mr & 7, _x() & 7);
+        if (auto registerMode = hierarchy_cast<RegisterMode *>(_mv); registerMode) {
+            assert(registerMode->modeRegister >= 0);
+            encodeRawModRm(enc, 3, registerMode->modeRegister & 7, _x() & 7);
+        } else if (auto baseDisp = hierarchy_cast<BaseDispMemoryMode *>(_mv); baseDisp) {
+            assert(baseDisp->baseRegister >= 0);
+            if (baseDisp->disp >= -128 && baseDisp->disp <= 127) {
+                // Encode the displacement in 8 bits.
+                encodeRawModRm(enc, 1, baseDisp->baseRegister & 7, _x() & 7);
+                encode8(enc, baseDisp->disp);
+            } else {
+                // Encode the displacement in 32 bits.
+                encodeRawModRm(enc, 2, baseDisp->baseRegister & 7, _x() & 7);
+                encode32(enc, baseDisp->disp);
+            }
+        } else {
+            assert(!"Unexpected x86_64 IR value");
+            abort();
+        }
+
     }
 
 private:
@@ -93,22 +120,6 @@ private:
     Value *_rv;
     int _xop;
 };
-
-void encodeModeWithDisp(util::ByteEncoder &enc, Value *mv, int32_t disp, Value *rv) {
-    auto mr = getRegister(mv);
-    auto rr = getRegister(rv);
-    assert(mr >= 0);
-    assert(rr >= 0);
-    if (disp >= -128 && disp <= 127) {
-        // Encode the displacement in 8 bits.
-        encodeRawModRm(enc, 1, mr & 7, rr & 7);
-        encode8(enc, disp);
-    } else {
-        // Encode the displacement in 32 bits.
-        encodeRawModRm(enc, 2, mr & 7, rr & 7);
-        encode32(enc, disp);
-    }
-}
 
 void MachineCodeEmitter::run() {
     auto textString = _elf->addString(std::make_unique<elf::String>(".text"));
@@ -162,6 +173,8 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
     for (auto inst : bb->instructions()) {
         if (auto nop = hierarchy_cast<NopInstruction *>(inst); nop) {
             // Do not emit any code.
+        }else if (hierarchy_cast<DefineOffsetInstruction *>(inst)) {
+            // Do not emit any code.
         } else if (auto pushSave = hierarchy_cast<PushSaveInstruction *>(inst); pushSave) {
             assert(pushSave->operandRegister >= 0);
             if (pushSave->operandRegister < 8) {
@@ -191,13 +204,11 @@ void MachineCodeEmitter::_emitBlock(BasicBlock *bb, elf::ByteSection *textSectio
             modRm.encodeRex(text);
             encode8(text, 0x89);
             modRm.encodeModRmSib(text);
-        } else if (auto movRMWithOffset = hierarchy_cast<MovRMWithOffsetInstruction *>(inst);
-                movRMWithOffset) {
-            ModRmEncoding modRm{movRMWithOffset->operand.get(), movRMWithOffset->result.get()};
+        } else if (auto movRM = hierarchy_cast<MovRMInstruction *>(inst); movRM) {
+            ModRmEncoding modRm{movRM->operand.get(), movRM->result.get()};
             modRm.encodeRex(text);
             encode8(text, 0x8B);
-            encodeModeWithDisp(text, movRMWithOffset->operand.get(), movRMWithOffset->offset,
-                    movRMWithOffset->result.get());
+            modRm.encodeModRmSib(text);
         } else if (auto xchgMR = hierarchy_cast<XchgMRInstruction *>(inst); xchgMR) {
             ModRmEncoding modRm{xchgMR->firstResult.get(), xchgMR->secondResult.get()};
             modRm.encodeRex(text);
