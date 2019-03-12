@@ -228,6 +228,7 @@ void AllocateRegistersImpl::run() {
     // they cannot be split or spilled. The ISA has to guarantee that even without
     // splitting or spilling we can find a feasible allocation.
     // For x86 this is easy, as all restricted allocation always go into fixed registers.
+    std::cout << "Perfoming restricted allocation" << std::endl;
     while (!_restrictedQueue.empty()) {
         auto compound = _restrictedQueue.front();
         _restrictedQueue.pop();
@@ -236,6 +237,7 @@ void AllocateRegistersImpl::run() {
     // We perform unrestricted allocations afterwards. If those cannot be satisfied, we can
     // just split or spill the intervals. We *never* have to split or spill a restricted
     // allocation in this second loop, as those are all already fixed.
+    std::cout << "Perfoming unrestricted allocation" << std::endl;
     while (!_unrestrictedQueue.empty()) {
         auto compound = _unrestrictedQueue.front();
         _unrestrictedQueue.pop();
@@ -315,7 +317,12 @@ void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
             bestRegister = i;
         }
     }
-    assert(bestRegister >= 0 && "Could not find possible register for allocation");
+    if(bestRegister < 0) {
+        std::cout << "Could not find possible register for allocation" << std::endl;
+        std::cout << "    Possible register mask was: 0x"
+                << std::hex << compound->possibleRegisters << std::dec << std::endl;
+        throw std::runtime_error("TODO: Implement live range splitting");
+    }
 
     compound->allocatedRegister = bestRegister;
     std::cout << "    Allocating to register " << compound->allocatedRegister
@@ -1079,8 +1086,7 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             bb->insertInstruction(std::make_unique<PopRestoreInstruction>(i));
         }
         if (frameSpace)
-            bb->insertInstruction(instructionsBegin,
-                    std::make_unique<IncrementStackInstruction>(frameSpace));
+            bb->insertInstruction(std::make_unique<IncrementStackInstruction>(frameSpace));
     }
 }
 
