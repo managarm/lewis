@@ -398,9 +398,12 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
 
     // Generate LiveIntervals for instructions.
     for (auto it = instructionsBegin; it != bb->instructions().end(); ++it) {
-        if (auto defineOffset = hierarchy_cast<DefineOffsetInstruction *>(*it); defineOffset) {
+        // Use cit to refer to the current instruction (we might need to increment it
+        // when we generate new instructions here).
+        auto cit = it;
+        if (auto defineOffset = hierarchy_cast<DefineOffsetInstruction *>(*cit); defineOffset) {
             auto originalOperand = defineOffset->operand.get();
-            auto pseudoMove = bb->insertInstruction(it,
+            auto pseudoMove = bb->insertInstruction(cit,
                     std::make_unique<PseudoMoveSingleInstruction>(originalOperand));
             auto pseudoMoveResult = pseudoMove->result.set(cloneModeValue(originalOperand));
             defineOffset->operand = pseudoMoveResult;
@@ -418,13 +421,13 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             compound->intervals.push_back(resultInterval);
             resultInterval->associatedValue = defineOffset->result.get();
             resultInterval->compound = compound;
-            resultInterval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
+            resultInterval->originPc = ProgramCounter{bb, inBlock, *cit, afterInstruction};
             assert(resultInterval->associatedValue);
 
             compoundMap.insert({defineOffset->result.get(), compound});
             collected.push_back(compound);
             _penalties.push_back(Penalty{{compoundMap.at(originalOperand), compound}});
-        } else if (auto movMC = hierarchy_cast<MovMCInstruction *>(*it); movMC) {
+        } else if (auto movMC = hierarchy_cast<MovMCInstruction *>(*cit); movMC) {
             auto compound = new LiveCompound;
             compound->possibleRegisters = gprMask;
 
@@ -432,12 +435,12 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             compound->intervals.push_back(interval);
             interval->associatedValue = movMC->result.get();
             interval->compound = compound;
-            interval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
+            interval->originPc = ProgramCounter{bb, inBlock, *cit, afterInstruction};
             assert(interval->associatedValue);
 
             compoundMap.insert({movMC->result.get(), compound});
             collected.push_back(compound);
-        } else if (auto unaryMOverwrite = hierarchy_cast<UnaryMOverwriteInstruction *>(*it);
+        } else if (auto unaryMOverwrite = hierarchy_cast<UnaryMOverwriteInstruction *>(*cit);
                 unaryMOverwrite) {
             auto compound = new LiveCompound;
             compound->possibleRegisters = gprMask;
@@ -446,15 +449,15 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             compound->intervals.push_back(resultInterval);
             resultInterval->associatedValue = unaryMOverwrite->result.get();
             resultInterval->compound = compound;
-            resultInterval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
+            resultInterval->originPc = ProgramCounter{bb, inBlock, *cit, afterInstruction};
             assert(resultInterval->associatedValue);
 
             compoundMap.insert({unaryMOverwrite->result.get(), compound});
             collected.push_back(compound);
-        } else if (auto unaryMInPlace = hierarchy_cast<UnaryMInPlaceInstruction *>(*it);
+        } else if (auto unaryMInPlace = hierarchy_cast<UnaryMInPlaceInstruction *>(*cit);
                 unaryMInPlace) {
             auto originalPrimary = unaryMInPlace->primary.get();
-            auto pseudoMove = bb->insertInstruction(it,
+            auto pseudoMove = bb->insertInstruction(cit,
                     std::make_unique<PseudoMoveSingleInstruction>(originalPrimary));
             auto pseudoMoveResult = pseudoMove->result.set(cloneModeValue(originalPrimary));
             unaryMInPlace->primary = pseudoMoveResult;
@@ -472,16 +475,16 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             compound->intervals.push_back(resultInterval);
             resultInterval->associatedValue = unaryMInPlace->result.get();
             resultInterval->compound = compound;
-            resultInterval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
+            resultInterval->originPc = ProgramCounter{bb, inBlock, *cit, afterInstruction};
             assert(resultInterval->associatedValue);
 
             compoundMap.insert({unaryMInPlace->result.get(), compound});
             collected.push_back(compound);
             _penalties.push_back(Penalty{{compoundMap.at(originalPrimary), compound}});
-        } else if (auto binaryMRInPlace = hierarchy_cast<BinaryMRInPlaceInstruction *>(*it);
+        } else if (auto binaryMRInPlace = hierarchy_cast<BinaryMRInPlaceInstruction *>(*cit);
                 binaryMRInPlace) {
             auto originalPrimary = binaryMRInPlace->primary.get();
-            auto pseudoMove = bb->insertInstruction(it,
+            auto pseudoMove = bb->insertInstruction(cit,
                     std::make_unique<PseudoMoveSingleInstruction>(originalPrimary));
             auto pseudoMoveResult = pseudoMove->result.set(cloneModeValue(originalPrimary));
             binaryMRInPlace->primary = pseudoMoveResult;
@@ -499,18 +502,19 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             compound->intervals.push_back(resultInterval);
             resultInterval->associatedValue = binaryMRInPlace->result.get();
             resultInterval->compound = compound;
-            resultInterval->originPc = {bb, inBlock, *it, afterInstruction};
+            resultInterval->originPc = {bb, inBlock, *cit, afterInstruction};
             assert(resultInterval->associatedValue);
 
             compoundMap.insert({binaryMRInPlace->result.get(), compound});
             collected.push_back(compound);
             _penalties.push_back(Penalty{{compoundMap.at(originalPrimary), compound}});
-        } else if (auto call = hierarchy_cast<CallInstruction *>(*it); call) {
-            std::array<int, 6> operandRegs{0x80, 0x40, 0x04, 0x02, 0x100, 0x200};
-            std::array<int, 2> clobberRegs{0x400, 0x800};
+        } else if (auto call = hierarchy_cast<CallInstruction *>(*cit); call) {
+            std::array<int, 6> operandRegs{0x80, 0x40, 0x04, 0x02, 0x0100, 0x0200};
+            std::array<int, 1> resultRegs{0x01};
+            std::array<int, 2> clobberRegs{0x0400, 0x0800};
 
             // Add a PseudoMove instruction for the operands.
-            auto pseudoMove = bb->insertInstruction(it,
+            auto pseudoMove = bb->insertInstruction(cit,
                     std::make_unique<PseudoMoveMultipleInstruction>(call->numOperands()));
             for (size_t i = 0; i < call->numOperands(); ++i) {
                 auto originalOperand = call->operand(i).get();
@@ -529,7 +533,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
                 copyInterval->associatedValue = pseudoMoveResult;
                 copyInterval->compound = copyCompound;
                 copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
-                copyInterval->finalPc = ProgramCounter{bb, inBlock, *it, beforeInstruction};
+                copyInterval->finalPc = ProgramCounter{bb, inBlock, *cit, beforeInstruction};
 
                 _restrictedQueue.push(copyCompound);
                 _penalties.push_back(Penalty{{compoundMap.at(originalOperand), copyCompound}});
@@ -543,8 +547,67 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
                 auto clobberInterval = new LiveInterval;
                 clobberCompound->intervals.push_back(clobberInterval);
                 clobberInterval->compound = clobberCompound;
-                clobberInterval->originPc = ProgramCounter{bb, inBlock, *it, atInstruction};
-                clobberInterval->finalPc = ProgramCounter{bb, inBlock, *it, atInstruction};
+                clobberInterval->originPc = ProgramCounter{bb, inBlock, *cit, atInstruction};
+                clobberInterval->finalPc = ProgramCounter{bb, inBlock, *cit, atInstruction};
+
+                _restrictedQueue.push(clobberCompound);
+            }
+
+            // Add LiveIntervals for result registers.
+            for (size_t i = 0; i < call->numResults(); ++i) {
+                auto nit = it;
+                ++nit;
+                auto pseudoMoveRetval = bb->insertInstruction(nit,
+                        std::make_unique<PseudoMoveSingleInstruction>());
+                auto pseudoMoveRetvalResult
+                        = pseudoMoveRetval->result.set(cloneModeValue(call->result(i).get()));
+                call->result(i).get()->replaceAllUses(pseudoMoveRetvalResult);
+                pseudoMoveRetval->operand = call->result(i).get();
+
+                // Add LiveIntervals for the results.
+                auto resultCompound = new LiveCompound;
+                resultCompound->possibleRegisters = 0x1;
+
+                auto resultInterval = new LiveInterval;
+                resultCompound->intervals.push_back(resultInterval);
+                resultInterval->associatedValue = call->result(i).get();
+                resultInterval->compound = resultCompound;
+                resultInterval->originPc = ProgramCounter{bb, inBlock, *cit, afterInstruction};
+                resultInterval->finalPc = ProgramCounter{bb, inBlock,
+                        pseudoMoveRetval, beforeInstruction};
+                assert(resultInterval->associatedValue);
+
+                // Add a LiveInterval for a copy of the result.
+                auto retvalCopyCompound = new LiveCompound;
+                retvalCopyCompound->possibleRegisters = gprMask;
+
+                auto retvalCopyInterval = new LiveInterval;
+                retvalCopyCompound->intervals.push_back(retvalCopyInterval);
+                retvalCopyInterval->associatedValue = pseudoMoveRetvalResult;
+                retvalCopyInterval->compound = retvalCopyCompound;
+                retvalCopyInterval->originPc = ProgramCounter{bb, inBlock,
+                     pseudoMoveRetval, afterInstruction};
+
+                compoundMap.insert({pseudoMoveRetvalResult, resultCompound});
+                _restrictedQueue.push(resultCompound);
+                collected.push_back(retvalCopyCompound);
+                _penalties.push_back(Penalty{{resultCompound, retvalCopyCompound}});
+
+                // Skip the PseudoMove instruction.
+                ++it;
+                assert(*it == pseudoMoveRetval);
+            }
+
+            // Add LiveIntervals for clobbered result registers.
+            for (size_t i = call->numResults(); i < resultRegs.size(); ++i) {
+                auto clobberCompound = new LiveCompound;
+                clobberCompound->possibleRegisters = resultRegs[i];
+
+                auto clobberInterval = new LiveInterval;
+                clobberCompound->intervals.push_back(clobberInterval);
+                clobberInterval->compound = clobberCompound;
+                clobberInterval->originPc = ProgramCounter{bb, inBlock, *cit, atInstruction};
+                clobberInterval->finalPc = ProgramCounter{bb, inBlock, *cit, atInstruction};
 
                 _restrictedQueue.push(clobberCompound);
             }
@@ -557,51 +620,11 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
                 auto clobberInterval = new LiveInterval;
                 clobberCompound->intervals.push_back(clobberInterval);
                 clobberInterval->compound = clobberCompound;
-                clobberInterval->originPc = ProgramCounter{bb, inBlock, *it, atInstruction};
-                clobberInterval->finalPc = ProgramCounter{bb, inBlock, *it, atInstruction};
+                clobberInterval->originPc = ProgramCounter{bb, inBlock, *cit, atInstruction};
+                clobberInterval->finalPc = ProgramCounter{bb, inBlock, *cit, atInstruction};
 
                 _restrictedQueue.push(clobberCompound);
             }
-
-            // TODO: When we make results optional, we still have to add a clobber for RAX.
-            auto nit = it;
-            ++nit;
-            auto pseudoMoveRetval = bb->insertInstruction(nit,
-                    std::make_unique<PseudoMoveSingleInstruction>());
-            auto pseudoMoveRetvalResult = pseudoMoveRetval->result.set(cloneModeValue(call->result.get()));
-            call->result.get()->replaceAllUses(pseudoMoveRetvalResult);
-            pseudoMoveRetval->operand = call->result.get();
-
-            // Add LiveIntervals for the results.
-            auto resultCompound = new LiveCompound;
-            resultCompound->possibleRegisters = 0x1;
-
-            auto resultInterval = new LiveInterval;
-            resultCompound->intervals.push_back(resultInterval);
-            resultInterval->associatedValue = call->result.get();
-            resultInterval->compound = resultCompound;
-            resultInterval->originPc = ProgramCounter{bb, inBlock, *it, afterInstruction};
-            resultInterval->finalPc = ProgramCounter{bb, inBlock, pseudoMoveRetval, beforeInstruction};
-            assert(resultInterval->associatedValue);
-
-            // Add a LiveInterval for a copy of the result.
-            auto retvalCopyCompound = new LiveCompound;
-            retvalCopyCompound->possibleRegisters = gprMask;
-
-            auto retvalCopyInterval = new LiveInterval;
-            retvalCopyCompound->intervals.push_back(retvalCopyInterval);
-            retvalCopyInterval->associatedValue = pseudoMoveRetvalResult;
-            retvalCopyInterval->compound = retvalCopyCompound;
-            retvalCopyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMoveRetval, afterInstruction};
-
-            compoundMap.insert({pseudoMoveRetvalResult, resultCompound});
-            _restrictedQueue.push(resultCompound);
-            collected.push_back(retvalCopyCompound);
-            _penalties.push_back(Penalty{{resultCompound, retvalCopyCompound}});
-
-            // Skip the PseudoMove instruction.
-            ++it;
-            assert(*it == pseudoMoveRetval);
         } else {
             std::cout << "lewis: Unknown instruction kind " << (*it)->kind << std::endl;
             assert(!"Unexpected IR instruction");

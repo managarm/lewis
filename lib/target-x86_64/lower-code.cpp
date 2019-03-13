@@ -112,15 +112,19 @@ void LowerCodeImpl::run() {
             binaryMath->right = nullptr;
             it = _bb->replaceInstruction(it, std::move(lower));
         } else if (auto invoke = hierarchy_cast<InvokeInstruction *>(*it); invoke) {
-            auto lower = std::make_unique<CallInstruction>(invoke->numOperands());
+            auto lower = std::make_unique<CallInstruction>(invoke->numOperands(),
+                    invoke->numResults());
             lower->function = invoke->function;
-
-            auto lowerResult = lower->result.set(lowerValue(invoke->result.get()));
-            invoke->result.get()->replaceAllUses(lowerResult);
 
             for (size_t i = 0; i < invoke->numOperands(); ++i) {
                 lower->operand(i) = invoke->operand(i).get();
                 invoke->operand(i) = nullptr;
+            }
+
+            for (size_t i = 0; i < invoke->numResults(); ++i) {
+                auto lowerResult = lower->result(i).set(lowerValue(invoke->result(i).get()));
+                invoke->result(i).get()->replaceAllUses(lowerResult);
+                invoke->result(i) = nullptr;
             }
 
             it = _bb->replaceInstruction(it, std::move(lower));

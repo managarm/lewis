@@ -903,21 +903,26 @@ struct BinaryMathInstruction
 struct InvokeInstruction
 : Instruction,
         CastableIfInstructionKind<InvokeInstruction, instruction_kinds::invoke> {
-    InvokeInstruction(std::string function, size_t numOperands_)
-    : Instruction{instruction_kinds::invoke}, function{std::move(function)}, result{this} {
+    InvokeInstruction(std::string function, size_t numOperands_, size_t numResults_)
+    : Instruction{instruction_kinds::invoke}, function{std::move(function)} {
         for (size_t i = 0; i < numOperands_; i++)
             _operands.push_back(std::make_unique<ValueUse>(this));
+        for (size_t i = 0; i < numResults_; i++)
+            _results.push_back(std::make_unique<ValueOrigin>(this));
     }
 
     std::string function;
-    ValueOrigin result;
 
     size_t numOperands() { return _operands.size(); }
     ValueUse &operand(size_t i) { return *_operands[i]; }
 
+    size_t numResults() { return _results.size(); }
+    ValueOrigin &result(size_t i) { return *_results[i]; }
+
 private:
     // TODO: This can be done without another indirection.
     std::vector<std::unique_ptr<ValueUse>> _operands;
+    std::vector<std::unique_ptr<ValueOrigin>> _results;
 };
 
 } // namespace lewis

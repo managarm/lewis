@@ -36,10 +36,10 @@ int main() {
     auto v4 = i4->result.setNew<lewis::LocalValue>();
     v4->setType(lewis::globalInt32Type());
 
-    auto i5 = b0->insertNewInstruction<lewis::InvokeInstruction>("__mmio_read32", 2);
+    auto i5 = b0->insertNewInstruction<lewis::InvokeInstruction>("__mmio_read32", 2, 1);
     i5->operand(0) = v1;
     i5->operand(1) = v4;
-    auto v5 = i5->result.setNew<lewis::LocalValue>();
+    auto v5 = i5->result(0).setNew<lewis::LocalValue>();
     v5->setType(lewis::globalInt32Type());
 
     auto i6 = b0->insertNewInstruction<lewis::LoadConstInstruction>(23);
@@ -70,11 +70,9 @@ int main() {
     auto pv2 = df1->value.setNew<lewis::LocalValue>();
     pv2->setType(lewis::globalInt32Type());
 
-    auto i10 = b1->insertNewInstruction<lewis::InvokeInstruction>("__trigger_event", 2);
+    auto i10 = b1->insertNewInstruction<lewis::InvokeInstruction>("__trigger_event", 2, 0);
     i10->operand(0) = pv1;
     i10->operand(1) = pv2;
-    auto v10 = i10->result.setNew<lewis::LocalValue>();
-    v10->setType(lewis::globalInt32Type());
 
     auto i8 = b1->insertNewInstruction<lewis::LoadConstInstruction>(1);
     auto v8 = i8->result.setNew<lewis::LocalValue>();
