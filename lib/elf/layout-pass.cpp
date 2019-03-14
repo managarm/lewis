@@ -99,6 +99,7 @@ void LayoutPassImpl::run() {
                 auto b = elf64Hash(symbol->name->buffer) & (tableSize - 1);
                 if (auto t = bucketData[b].tail; !t) {
                     hash->buckets[b] = symbol;
+                    bucketData[b].tail = symbol->designatedIndex.value();
                 }else{
                     hash->chains[t] = symbol;
                     bucketData[b].tail = symbol->designatedIndex.value();
@@ -107,7 +108,10 @@ void LayoutPassImpl::run() {
                 }
             }
 
-            std::cout << "Max collisions in hash table: " << maxCollisions << std::endl;
+            std::cout << "ELF hash table of size " << tableSize
+                    << " contains " << _elf->symbols().size()
+                    << " symbols; there are at most " << maxCollisions
+                    << " collisions" << std::endl;
         } else {
             auto section = hierarchy_cast<ByteSection *>(fragment);
             assert(section && "Unexpected ELF fragment");
