@@ -115,7 +115,8 @@ struct ProgramCounter {
 struct LiveCompound;
 
 struct LiveInterval {
-    LiveInterval() = default;
+    LiveInterval()
+    : equivalencePointer{this} { }
 
     LiveInterval(const LiveInterval &) = delete;
 
@@ -128,12 +129,12 @@ struct LiveInterval {
 
     LiveCompound *compound = nullptr;
 
+    // Intervals with the same equivalencePointer can be allocated to the same register.
+    LiveInterval *equivalencePointer;
+
     // Program counters of interval origin and final use.
     ProgramCounter originPc;
     ProgramCounter finalPc;
-
-    bool inMoveChain = false;
-    LiveInterval *previousMoveInChain = nullptr;
 
     // List of intervals that share the same compound.
     frg::default_list_hook<LiveInterval> compoundHook;
@@ -270,6 +271,11 @@ void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
                 << " at [" << interval->originPc << ", " << interval->finalPc << "]" << std::endl;
 
         _allocated.for_overlaps([&] (LiveInterval *overlap) {
+            // The intervals might be able to share their registers.
+            // In this case no splitting/spilling is necessary.
+            if (interval->equivalencePointer == overlap->equivalencePointer)
+                return;
+
             auto overlapRegister = overlap->compound->allocatedRegister;
             assert(overlapRegister >= 0);
             state[overlapRegister].allocationPossible = false;
@@ -340,7 +346,7 @@ void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
 // Called before allocation. Generates all LiveIntervals and adds them to the queue.
 void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
     std::vector<LiveCompound *> collected;
-    std::unordered_map<Value *, LiveCompound *> compoundMap;
+    std::unordered_map<Value *, LiveInterval *> intervalMap;
 
     // Make sure to skip new instructions inserted at the beginning of the block.
     auto instructionsBegin = bb->instructions().begin();
@@ -390,7 +396,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         copyInterval->compound = copyCompound;
         copyInterval->originPc = {bb, inBlock, pseudoMove, afterInstruction};
 
-        compoundMap.insert({pseudoMoveResult, copyCompound});
+        intervalMap.insert({pseudoMoveResult, copyInterval});
         _unrestrictedQueue.push(nodeCompound);
         collected.push_back(copyCompound);
         _penalties.push_back(Penalty{{nodeCompound, copyCompound}});
@@ -411,22 +417,25 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             auto compound = new LiveCompound;
             compound->possibleRegisters = gprMask;
 
+            // TODO: Do we really need copyInterval here?
             auto copyInterval = new LiveInterval;
             compound->intervals.push_back(copyInterval);
+            copyInterval->equivalencePointer = intervalMap.at(originalOperand)->equivalencePointer;
             copyInterval->associatedValue = pseudoMoveResult;
             copyInterval->compound = compound;
             copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
 
             auto resultInterval = new LiveInterval;
             compound->intervals.push_back(resultInterval);
+            resultInterval->equivalencePointer = intervalMap.at(originalOperand)->equivalencePointer;
             resultInterval->associatedValue = defineOffset->result.get();
             resultInterval->compound = compound;
             resultInterval->originPc = ProgramCounter{bb, inBlock, *cit, afterInstruction};
             assert(resultInterval->associatedValue);
 
-            compoundMap.insert({defineOffset->result.get(), compound});
+            intervalMap.insert({defineOffset->result.get(), resultInterval});
             collected.push_back(compound);
-            _penalties.push_back(Penalty{{compoundMap.at(originalOperand), compound}});
+            _penalties.push_back(Penalty{{intervalMap.at(originalOperand)->compound, compound}});
         } else if (auto movMC = hierarchy_cast<MovMCInstruction *>(*cit); movMC) {
             auto compound = new LiveCompound;
             compound->possibleRegisters = gprMask;
@@ -438,7 +447,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             interval->originPc = ProgramCounter{bb, inBlock, *cit, afterInstruction};
             assert(interval->associatedValue);
 
-            compoundMap.insert({movMC->result.get(), compound});
+            intervalMap.insert({movMC->result.get(), interval});
             collected.push_back(compound);
         } else if (auto unaryMOverwrite = hierarchy_cast<UnaryMOverwriteInstruction *>(*cit);
                 unaryMOverwrite) {
@@ -452,7 +461,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             resultInterval->originPc = ProgramCounter{bb, inBlock, *cit, afterInstruction};
             assert(resultInterval->associatedValue);
 
-            compoundMap.insert({unaryMOverwrite->result.get(), compound});
+            intervalMap.insert({unaryMOverwrite->result.get(), resultInterval});
             collected.push_back(compound);
         } else if (auto unaryMInPlace = hierarchy_cast<UnaryMInPlaceInstruction *>(*cit);
                 unaryMInPlace) {
@@ -478,9 +487,9 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             resultInterval->originPc = ProgramCounter{bb, inBlock, *cit, afterInstruction};
             assert(resultInterval->associatedValue);
 
-            compoundMap.insert({unaryMInPlace->result.get(), compound});
+            intervalMap.insert({unaryMInPlace->result.get(), resultInterval});
             collected.push_back(compound);
-            _penalties.push_back(Penalty{{compoundMap.at(originalPrimary), compound}});
+            _penalties.push_back(Penalty{{intervalMap.at(originalPrimary)->compound, compound}});
         } else if (auto binaryMRInPlace = hierarchy_cast<BinaryMRInPlaceInstruction *>(*cit);
                 binaryMRInPlace) {
             auto originalPrimary = binaryMRInPlace->primary.get();
@@ -505,9 +514,9 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             resultInterval->originPc = {bb, inBlock, *cit, afterInstruction};
             assert(resultInterval->associatedValue);
 
-            compoundMap.insert({binaryMRInPlace->result.get(), compound});
+            intervalMap.insert({binaryMRInPlace->result.get(), resultInterval});
             collected.push_back(compound);
-            _penalties.push_back(Penalty{{compoundMap.at(originalPrimary), compound}});
+            _penalties.push_back(Penalty{{intervalMap.at(originalPrimary)->compound, compound}});
         } else if (auto call = hierarchy_cast<CallInstruction *>(*cit); call) {
             std::array<int, 6> operandRegs{0x80, 0x40, 0x04, 0x02, 0x0100, 0x0200};
             std::array<int, 1> resultRegs{0x01};
@@ -536,7 +545,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
                 copyInterval->finalPc = ProgramCounter{bb, inBlock, *cit, beforeInstruction};
 
                 _restrictedQueue.push(copyCompound);
-                _penalties.push_back(Penalty{{compoundMap.at(originalOperand), copyCompound}});
+                _penalties.push_back(Penalty{{intervalMap.at(originalOperand)->compound, copyCompound}});
             }
 
             // Add LiveIntervals for clobbered operand registers.
@@ -588,7 +597,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
                 retvalCopyInterval->originPc = ProgramCounter{bb, inBlock,
                      pseudoMoveRetval, afterInstruction};
 
-                compoundMap.insert({pseudoMoveRetvalResult, resultCompound});
+                intervalMap.insert({pseudoMoveRetvalResult, retvalCopyInterval});
                 _restrictedQueue.push(resultCompound);
                 collected.push_back(retvalCopyCompound);
                 _penalties.push_back(Penalty{{resultCompound, retvalCopyCompound}});
@@ -656,7 +665,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             sourceInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
             sourceInterval->finalPc = ProgramCounter{bb, afterBlock, nullptr, afterInstruction};
 
-            _penalties.push_back(Penalty{{compoundMap.at(originalAlias), nodeCompound}});
+            _penalties.push_back(Penalty{{intervalMap.at(originalAlias)->compound, nodeCompound}});
         }
     }
 
@@ -684,7 +693,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             copyInterval->finalPc = ProgramCounter{bb, afterBlock, nullptr, afterInstruction};
 
             _restrictedQueue.push(copyCompound);
-            _penalties.push_back(Penalty{{compoundMap.at(originalOperand), copyCompound}});
+            _penalties.push_back(Penalty{{intervalMap.at(originalOperand)->compound, copyCompound}});
         }
     } else if (auto jnz = hierarchy_cast<JnzBranch *>(bb->branch()); jnz) {
         auto originalOperand = jnz->operand.get();
@@ -704,7 +713,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
         copyInterval->finalPc = ProgramCounter{bb, afterBlock, nullptr, afterInstruction};
 
         _unrestrictedQueue.push(copyCompound);
-        _penalties.push_back(Penalty{{compoundMap.at(originalOperand), copyCompound}});
+        _penalties.push_back(Penalty{{intervalMap.at(originalOperand)->compound, copyCompound}});
     }
 
     // Post-process the generated intervals.
@@ -791,14 +800,10 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
         // Determine the current register allocation.
         // TODO: This does not take clobbers into account.
-        LiveInterval *currentState[16] = {};
-
         for (auto entry : liveMap) {
             auto interval = entry.second;
             auto currentRegister = interval->compound->allocatedRegister;
             assert(currentRegister >= 0);
-            assert(!currentState[currentRegister]);
-            currentState[currentRegister] = interval;
             std::cout << "        Current state[" << currentRegister << "]: "
                     << interval->associatedValue << std::endl;
         }
@@ -941,6 +946,9 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 int pendingMovesFromThisCycle = 0;
             };
 
+            // TODO: With equivalencePointer, multiple LiveIntervals might share the same
+            //       register. Thus, we cannot identify MoveChains by their register alone.
+            //       Rewrite this code to use a hash map that maps Values to MoveChains.
             MoveChain chains[16];
 
             auto chainRegister = [&] (MoveChain *chain) -> int {
