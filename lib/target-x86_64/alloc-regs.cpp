@@ -170,6 +170,58 @@ struct Penalty {
     std::array<LiveCompound *, 2> compounds;
 };
 
+// Represents a node of the move chain graph.
+struct MoveChain {
+    // ----------------------------------------------------------------------
+    // Members defined for all MoveChains.
+    // ----------------------------------------------------------------------
+
+    bool isTail() {
+        if(!isTarget)
+            return false;
+        if(isSource && pendingMovesFromThisSource)
+            return false;
+        return true;
+    }
+
+    bool seenInTraversal = false;
+    bool traversalFinished = false;
+
+    MoveChain *cyclePointer = nullptr;
+
+    // ----------------------------------------------------------------------
+    // Members defined for move *sources*.
+    // ----------------------------------------------------------------------
+
+    // True if this MoveChain is the source of any move.
+    bool isSource = false;
+
+    // Number of non-emitted moves until this tail becomes active.
+    int pendingMovesFromThisSource = 0;
+
+    // ----------------------------------------------------------------------
+    // Members defined for move *targets*.
+    // ----------------------------------------------------------------------
+
+    // True if this MoveChain is the target of any move.
+    bool isTarget = false;
+
+    // Index of the corresponding PseudoMoveMultiple operand.
+    int operandIndex = -1;
+
+    MoveChain *uniqueSource = nullptr;
+
+    // Sanity check that we emit each move exactly once.
+    bool didMoveToThisTarget = false;
+
+    // ----------------------------------------------------------------------
+    // Members defined for cycle representatives (pointed to by cyclePointer).
+    // ----------------------------------------------------------------------
+
+    // Number of non-emitted moves until this cycle becomes active.
+    int pendingMovesFromThisCycle = 0;
+};
+
 struct AllocateRegistersImpl : AllocateRegistersPass {
     AllocateRegistersImpl(Function *fn)
     : _fn{fn} { }
@@ -881,58 +933,6 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             //   (as every register has in-degree at most 1).
             // - Emit those paths in cycles.
             std::cout << "        Rewriting pseudoMoveMultiple" << std::endl;
-
-            // Represents a node of the move chain graph.
-            struct MoveChain {
-                // ----------------------------------------------------------------------
-                // Members defined for all MoveChains.
-                // ----------------------------------------------------------------------
-
-                bool isTail() {
-                    if(!isTarget)
-                        return false;
-                    if(isSource && pendingMovesFromThisSource)
-                        return false;
-                    return true;
-                }
-
-                bool seenInTraversal = false;
-                bool traversalFinished = false;
-
-                MoveChain *cyclePointer = nullptr;
-
-                // ----------------------------------------------------------------------
-                // Members defined for move *sources*.
-                // ----------------------------------------------------------------------
-
-                // True if this MoveChain is the source of any move.
-                bool isSource = false;
-
-                // Number of non-emitted moves until this tail becomes active.
-                int pendingMovesFromThisSource = 0;
-
-                // ----------------------------------------------------------------------
-                // Members defined for move *targets*.
-                // ----------------------------------------------------------------------
-
-                // True if this MoveChain is the target of any move.
-                bool isTarget = false;
-
-                // Index of the corresponding PseudoMoveMultiple operand.
-                int operandIndex = -1;
-
-                MoveChain *uniqueSource = nullptr;
-
-                // Sanity check that we emit each move exactly once.
-                bool didMoveToThisTarget = false;
-
-                // ----------------------------------------------------------------------
-                // Members defined for cycle representatives (pointed to by cyclePointer).
-                // ----------------------------------------------------------------------
-
-                // Number of non-emitted moves until this cycle becomes active.
-                int pendingMovesFromThisCycle = 0;
-            };
 
             // TODO: With equivalencePointer, multiple LiveIntervals might share the same
             //       register. Thus, we cannot identify MoveChains by their register alone.
