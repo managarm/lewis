@@ -889,9 +889,9 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 // ----------------------------------------------------------------------
 
                 bool isTail() {
-                    if(!isTarget())
+                    if(!isTarget)
                         return false;
-                    if(isSource() && pendingMovesFromThisSource)
+                    if(isSource && pendingMovesFromThisSource)
                         return false;
                     return true;
                 }
@@ -905,16 +905,8 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 // Members defined for move *sources*.
                 // ----------------------------------------------------------------------
 
-                bool isSource() {
-                    return firstTarget;
-                }
-
-                // Index of the corresponding PseudoMoveMultiple operand.
-                int operandIndex = -1;
-
-                // First chain that has this chain as uniqueSource.
-                // TODO: Do we actually need this linked list?
-                MoveChain *firstTarget = nullptr;
+                // True if this MoveChain is the source of any move.
+                bool isSource = false;
 
                 // Number of non-emitted moves until this tail becomes active.
                 int pendingMovesFromThisSource = 0;
@@ -923,19 +915,15 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 // Members defined for move *targets*.
                 // ----------------------------------------------------------------------
 
-                bool isTarget() {
-                    return uniqueSource;
-                }
+                // True if this MoveChain is the target of any move.
+                bool isTarget = false;
 
-                // Index of the corresponding PseudoMoveMultiple result.
-                // TODO: Do we actually need this index?
-                int resultIndex = -1;
+                // Index of the corresponding PseudoMoveMultiple operand.
+                int operandIndex = -1;
 
                 MoveChain *uniqueSource = nullptr;
 
-                // Next chain that shares the same uniqueSource.
-                MoveChain *siblingTarget = nullptr;
-
+                // Sanity check that we emit each move exactly once.
                 bool didMoveToThisTarget = false;
 
                 // ----------------------------------------------------------------------
@@ -979,15 +967,12 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 auto operandChain = &chains[operandRegister];
                 auto resultChain = &chains[resultRegister];
 
-                operandChain->resultIndex = i;
-                resultChain->operandIndex = i;
-
                 assert(!resultChain->uniqueSource);
-                assert(!resultChain->siblingTarget);
+                resultChain->isTarget = true;
+                resultChain->operandIndex = i;
                 resultChain->uniqueSource = operandChain;
-                resultChain->siblingTarget = operandChain->firstTarget;
 
-                operandChain->firstTarget = resultChain;
+                operandChain->isSource = true;
                 operandChain->pendingMovesFromThisSource++;
             }
 
