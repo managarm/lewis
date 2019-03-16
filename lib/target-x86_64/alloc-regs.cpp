@@ -207,7 +207,7 @@ struct MoveChain {
     bool isTarget = false;
 
     // Index of the corresponding PseudoMoveMultiple operand.
-    int operandIndex = -1;
+    std::vector<int> indicesOfTarget;
 
     MoveChain *uniqueSource = nullptr;
 
@@ -711,6 +711,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             auto nodeCompound = _phiCompounds.at(edges[i]->sink()->phiNode());
             auto sourceInterval = new LiveInterval;
             nodeCompound->intervals.push_back(sourceInterval);
+            sourceInterval->equivalencePointer = intervalMap.at(originalAlias)->equivalencePointer;
             sourceInterval->associatedValue = pseudoMoveResult;
             sourceInterval->compound = nodeCompound;
             assert(sourceInterval->associatedValue);
@@ -739,6 +740,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
 
             auto copyInterval = new LiveInterval;
             copyCompound->intervals.push_back(copyInterval);
+            copyInterval->equivalencePointer = intervalMap.at(originalOperand)->equivalencePointer;
             copyInterval->associatedValue = pseudoMoveResult;
             copyInterval->compound = copyCompound;
             copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
@@ -759,6 +761,7 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
 
         auto copyInterval = new LiveInterval;
         copyCompound->intervals.push_back(copyInterval);
+        copyInterval->equivalencePointer = intervalMap.at(originalOperand)->equivalencePointer;
         copyInterval->associatedValue = pseudoMoveResult;
         copyInterval->compound = copyCompound;
         copyInterval->originPc = ProgramCounter{bb, inBlock, pseudoMove, afterInstruction};
@@ -967,10 +970,16 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 auto operandChain = &chains[operandRegister];
                 auto resultChain = &chains[resultRegister];
 
-                assert(!resultChain->uniqueSource);
                 resultChain->isTarget = true;
-                resultChain->operandIndex = i;
-                resultChain->uniqueSource = operandChain;
+                resultChain->indicesOfTarget.push_back(i);
+                if (!resultChain->uniqueSource) {
+                    resultChain->uniqueSource = operandChain;
+                } else {
+                    // If there are multiple moves to the same target,
+                    // the source registers must be identical.
+                    // TODO: Lift this restriction.
+                    assert(resultChain->uniqueSource == operandChain);
+                }
 
                 operandChain->isSource = true;
                 operandChain->pendingMovesFromThisSource++;
@@ -981,39 +990,44 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
             // Helper function to emit a single move of a move chain.
             auto emitMoveToChain = [&] (MoveChain *targetChain) {
-                auto index = targetChain->operandIndex;
-                auto srcChain = targetChain->uniqueSource;
-                assert(!targetChain->didMoveToThisTarget);
-                assert(srcChain->pendingMovesFromThisSource > 0);
+                // TODO: This generates duplicate moves.
+                //       Introduce a VirtualAlias instruction to alias all sources/results.
+                std::cout << "        There are " << targetChain->indicesOfTarget.size()
+                        << " moves to target register " << chainRegister(targetChain) << std::endl;
+                for (int index : targetChain->indicesOfTarget) {
+                    auto srcChain = targetChain->uniqueSource;
+                    assert(!targetChain->didMoveToThisTarget);
+                    assert(srcChain->pendingMovesFromThisSource > 0);
 
-                auto operandInterval = liveMap.at(pseudoMoveMultiple->operand(index).get());
-                auto resultInterval = resultMap.at(pseudoMoveMultiple->result(index).get());
-                assert(operandInterval->compound->allocatedRegister == chainRegister(srcChain));
-                assert(resultInterval->compound->allocatedRegister == chainRegister(targetChain));
+                    auto operandInterval = liveMap.at(pseudoMoveMultiple->operand(index).get());
+                    auto resultInterval = resultMap.at(pseudoMoveMultiple->result(index).get());
+                    assert(operandInterval->compound->allocatedRegister == chainRegister(srcChain));
+                    assert(resultInterval->compound->allocatedRegister == chainRegister(targetChain));
 
-                // Emit the new move instruction.
-                auto move = std::make_unique<MovMRInstruction>(
-                        pseudoMoveMultiple->operand(index).get());
-                auto moveResult = pseudoMoveMultiple->result(index).reset();
-                pseudoMoveMultiple->operand(index) = nullptr;
-                move->result.set(std::move(moveResult));
+                    // Emit the new move instruction.
+                    auto move = std::make_unique<MovMRInstruction>(
+                            pseudoMoveMultiple->operand(index).get());
+                    auto moveResult = pseudoMoveMultiple->result(index).reset();
+                    pseudoMoveMultiple->operand(index) = nullptr;
+                    move->result.set(std::move(moveResult));
 
-                fixMoveIntervals(operandInterval, resultInterval, move.get());
-                bb->insertInstruction(it, std::move(move));
-                _numRegisterMoves++;
+                    fixMoveIntervals(operandInterval, resultInterval, move.get());
+                    bb->insertInstruction(it, std::move(move));
+                    _numRegisterMoves++;
 
-                // Update the MoveChain structs.
-                targetChain->didMoveToThisTarget = true;
+                    // Update the MoveChain structs.
+                    targetChain->didMoveToThisTarget = true;
 
-                srcChain->pendingMovesFromThisSource--;
-                if (srcChain->isTail())
-                    activeTails.push_back(srcChain);
+                    srcChain->pendingMovesFromThisSource--;
+                    if (srcChain->isTail())
+                        activeTails.push_back(srcChain);
 
-                auto cycleChain = srcChain->cyclePointer;
-                if(cycleChain && cycleChain != targetChain->cyclePointer) {
-                    cycleChain->pendingMovesFromThisCycle--;
-                    if (!cycleChain->pendingMovesFromThisCycle)
-                        activeCycles.push_back(cycleChain);
+                    auto cycleChain = srcChain->cyclePointer;
+                    if(cycleChain && cycleChain != targetChain->cyclePointer) {
+                        cycleChain->pendingMovesFromThisCycle--;
+                        if (!cycleChain->pendingMovesFromThisCycle)
+                            activeCycles.push_back(cycleChain);
+                    }
                 }
             };
 
