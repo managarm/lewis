@@ -571,8 +571,9 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
             _penalties.push_back(Penalty{{intervalMap.at(originalPrimary)->compound, compound}});
         } else if (auto call = hierarchy_cast<CallInstruction *>(*cit); call) {
             std::array<int, 6> operandRegs{0x80, 0x40, 0x04, 0x02, 0x0100, 0x0200};
-            std::array<int, 1> resultRegs{0x01};
-            std::array<int, 2> clobberRegs{0x0400, 0x0800};
+            std::array<int, 2> resultRegs{0x01, 0x04};
+            std::array<int, 9> clobberRegs{0x80, 0x40, 0x04, 0x02, 0x0100, 0x0200,
+					0x01, 0x0400, 0x0800};
 
             // Add a PseudoMove instruction for the operands.
             auto pseudoMove = bb->insertInstruction(cit,
@@ -598,20 +599,6 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
 
                 _restrictedQueue.push(copyCompound);
                 _penalties.push_back(Penalty{{intervalMap.at(originalOperand)->compound, copyCompound}});
-            }
-
-            // Add LiveIntervals for clobbered operand registers.
-            for (size_t i = call->numOperands(); i < operandRegs.size(); ++i) {
-                auto clobberCompound = new LiveCompound;
-                clobberCompound->possibleRegisters = operandRegs[i];
-
-                auto clobberInterval = new LiveInterval;
-                clobberCompound->intervals.push_back(clobberInterval);
-                clobberInterval->compound = clobberCompound;
-                clobberInterval->originPc = ProgramCounter{bb, inBlock, *cit, atInstruction};
-                clobberInterval->finalPc = ProgramCounter{bb, inBlock, *cit, atInstruction};
-
-                _restrictedQueue.push(clobberCompound);
             }
 
             // Add LiveIntervals for result registers.
@@ -657,20 +644,6 @@ void AllocateRegistersImpl::_collectBlockIntervals(BasicBlock *bb) {
                 // Skip the PseudoMove instruction.
                 ++it;
                 assert(*it == pseudoMoveRetval);
-            }
-
-            // Add LiveIntervals for clobbered result registers.
-            for (size_t i = call->numResults(); i < resultRegs.size(); ++i) {
-                auto clobberCompound = new LiveCompound;
-                clobberCompound->possibleRegisters = resultRegs[i];
-
-                auto clobberInterval = new LiveInterval;
-                clobberCompound->intervals.push_back(clobberInterval);
-                clobberInterval->compound = clobberCompound;
-                clobberInterval->originPc = ProgramCounter{bb, inBlock, *cit, atInstruction};
-                clobberInterval->finalPc = ProgramCounter{bb, inBlock, *cit, atInstruction};
-
-                _restrictedQueue.push(clobberCompound);
             }
 
             // Add LiveIntervals for other clobbers.
