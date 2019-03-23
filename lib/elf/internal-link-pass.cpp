@@ -10,6 +10,8 @@
 namespace lewis::elf {
 
 namespace {
+    constexpr bool verbose = false;
+
     void put32(uint8_t *p, uint32_t v) {
         memcpy(p, &v, sizeof(uint32_t));
     }
@@ -26,7 +28,8 @@ private:
 };
 
 void InternalLinkPassImpl::run() {
-    std::cout << "Running InternalLinkPass" << std::endl;
+    if(verbose)
+        std::cout << "Running InternalLinkPass" << std::endl;
     for (auto relocation : _elf->internalRelocations()) {
         assert(relocation->offset >= 0);
 

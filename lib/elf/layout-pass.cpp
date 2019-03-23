@@ -9,6 +9,8 @@
 #include <lewis/elf/utils.hpp>
 
 namespace {
+    constexpr bool verbose = false;
+
     // Adapted from Bit Twiddling Hacks.
     template <typename T>
     T ceil2Power(T v) {
@@ -48,7 +50,8 @@ void LayoutPassImpl::run() {
     size_t sectionIndex = 1;
     size_t offset = 64; // Size of EHDR.
     size_t address = 0x1000;
-    std::cout << "Running LayoutPass" << std::endl;
+    if(verbose)
+        std::cout << "Running LayoutPass" << std::endl;
     for (auto fragment : _elf->fragments()) {
         size_t size;
         if (auto phdrs = hierarchy_cast<PhdrsFragment *>(fragment); phdrs) {
@@ -108,18 +111,20 @@ void LayoutPassImpl::run() {
                 }
             }
 
-            std::cout << "ELF hash table of size " << tableSize
-                    << " contains " << _elf->symbols().size()
-                    << " symbols; there are at most " << maxCollisions
-                    << " collisions" << std::endl;
+            if(verbose)
+                std::cout << "ELF hash table of size " << tableSize
+                        << " contains " << _elf->symbols().size()
+                        << " symbols; there are at most " << maxCollisions
+                        << " collisions" << std::endl;
         } else {
             auto section = hierarchy_cast<ByteSection *>(fragment);
             assert(section && "Unexpected ELF fragment");
             size = section->buffer.size();
         }
 
-        std::cout << "Laying out fragment " << fragment << " at " << (void *)offset
-                << ", size: " << (void *)size << std::endl;
+        if(verbose)
+            std::cout << "Laying out fragment " << fragment << " at " << (void *)offset
+                    << ", size: " << (void *)size << std::endl;
         if (fragment->isSection())
             fragment->designatedIndex = sectionIndex++;
 

@@ -11,6 +11,7 @@ namespace lewis::targets::x86_64 {
 
 namespace {
     constexpr bool ignorePenalties = false;
+    constexpr bool verbose = false;
 
     // Every GPR except for RSP.
     constexpr uint64_t gprMask = 0xFFEF;
@@ -281,7 +282,8 @@ void AllocateRegistersImpl::run() {
     // they cannot be split or spilled. The ISA has to guarantee that even without
     // splitting or spilling we can find a feasible allocation.
     // For x86 this is easy, as all restricted allocation always go into fixed registers.
-    std::cout << "Perfoming restricted allocation" << std::endl;
+    if (verbose)
+        std::cout << "Perfoming restricted allocation" << std::endl;
     while (!_restrictedQueue.empty()) {
         auto compound = _restrictedQueue.front();
         _restrictedQueue.pop();
@@ -290,7 +292,8 @@ void AllocateRegistersImpl::run() {
     // We perform unrestricted allocations afterwards. If those cannot be satisfied, we can
     // just split or spill the intervals. We *never* have to split or spill a restricted
     // allocation in this second loop, as those are all already fixed.
-    std::cout << "Perfoming unrestricted allocation" << std::endl;
+    if (verbose)
+        std::cout << "Perfoming unrestricted allocation" << std::endl;
     while (!_unrestrictedQueue.empty()) {
         auto compound = _unrestrictedQueue.front();
         _unrestrictedQueue.pop();
@@ -300,8 +303,10 @@ void AllocateRegistersImpl::run() {
     for (auto bb : _fn->blocks())
         _establishAllocation(bb);
 
-    std::cout << "Allocation cost is " << _achievedCost << " units" << std::endl;
-    std::cout << "Allocation requires " << _numRegisterMoves << " moves" << std::endl;
+    if (verbose) {
+        std::cout << "Allocation cost is " << _achievedCost << " units" << std::endl;
+        std::cout << "Allocation requires " << _numRegisterMoves << " moves" << std::endl;
+    }
 }
 
 void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
@@ -316,11 +321,13 @@ void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
     int baseCost = 0;
     AllocationState state[16];
 
-    std::cout << "Allocating compound " << compound << ", possible registers: "
-            << compound->possibleRegisters << std::endl;
+    if (verbose)
+        std::cout << "Allocating compound " << compound << ", possible registers: "
+                << compound->possibleRegisters << std::endl;
     for (auto interval : compound->intervals) {
-        std::cout << "    Interval " << interval << " for value " << interval->associatedValue
-                << " at [" << interval->originPc << ", " << interval->finalPc << "]" << std::endl;
+        if (verbose)
+            std::cout << "    Interval " << interval << " for value " << interval->associatedValue
+                    << " at [" << interval->originPc << ", " << interval->finalPc << "]" << std::endl;
 
         _allocated.for_overlaps([&] (LiveInterval *overlap) {
             // The intervals might be able to share their registers.
@@ -348,8 +355,9 @@ void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
         if (other->allocatedRegister < 0)
             continue;
 
-        std::cout << "    Want to allocate to register " << other->allocatedRegister
-                << std::endl;
+        if (verbose)
+            std::cout << "    Want to allocate to register " << other->allocatedRegister
+                    << std::endl;
 
         // Instead of increasing cost everywhere, we increment the base cost
         // and add a negative contribution of a single register.
@@ -365,8 +373,9 @@ void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
         if (!state[i].allocationPossible)
             continue;
 
-        std::cout << "    Register " << i << " has cost "
-                << (baseCost + state[i].relativeCost) << std::endl;
+        if (verbose)
+            std::cout << "    Register " << i << " has cost "
+                    << (baseCost + state[i].relativeCost) << std::endl;
 
         if (bestRegister < 0) {
             bestRegister = i;
@@ -376,15 +385,16 @@ void AllocateRegistersImpl::_allocateCompound(LiveCompound *compound) {
         }
     }
     if(bestRegister < 0) {
-        std::cout << "Could not find possible register for allocation" << std::endl;
-        std::cout << "    Possible register mask was: 0x"
+        std::cerr << "Could not find possible register for allocation" << std::endl;
+        std::cerr << "    Possible register mask was: 0x"
                 << std::hex << compound->possibleRegisters << std::dec << std::endl;
         throw std::runtime_error("TODO: Implement live range splitting");
     }
 
     compound->allocatedRegister = bestRegister;
-    std::cout << "    Allocating to register " << compound->allocatedRegister
-            << ", cost: " << (baseCost + state[bestRegister].relativeCost) << std::endl;
+    if (verbose)
+        std::cout << "    Allocating to register " << compound->allocatedRegister
+                << ", cost: " << (baseCost + state[bestRegister].relativeCost) << std::endl;
 
     for (auto interval : compound->intervals) {
         if (interval->associatedValue)
@@ -813,11 +823,13 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
     std::unordered_map<Value *, LiveInterval *> liveMap;
     std::unordered_map<Value *, LiveInterval *> resultMap;
-    std::cout << "Fixing basic block " << bb << std::endl;
+    if (verbose)
+        std::cout << "Fixing basic block " << bb << std::endl;
 
     for (auto it = bb->instructions().begin(); it != bb->instructions().end(); ) {
-        std::cout << "    Fixing instruction " << bb->indexOfInstruction(*it) << ", kind "
-                << (*it)->kind << std::endl;
+        if (verbose)
+            std::cout << "    Fixing instruction " << bb->indexOfInstruction(*it) << ", kind "
+                    << (*it)->kind << std::endl;
         // Fill the liveMap and the resultMap.
         _allocated.for_overlaps([&] (LiveInterval *interval) {
             if (interval->originPc < ProgramCounter{bb, inBlock, *it, beforeInstruction})
@@ -832,14 +844,16 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             auto interval = entry.second;
             auto currentRegister = interval->compound->allocatedRegister;
             assert(currentRegister >= 0);
-            std::cout << "        Current state[" << currentRegister << "]: "
-                    << interval->associatedValue << std::endl;
+            if (verbose)
+                std::cout << "        Current state[" << currentRegister << "]: "
+                        << interval->associatedValue << std::endl;
         }
 
         for (auto entry : liveMap) {
             auto interval = entry.second;
-            std::cout << "        Instruction returns "
-                    << interval->associatedValue << std::endl;
+            if (verbose)
+                std::cout << "        Instruction returns "
+                        << interval->associatedValue << std::endl;
         }
 
         // Fixes the originPc and finalPc of existing intervals when a move is lowered.
@@ -879,7 +893,8 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             auto resultInterval = resultMap.at(pseudoMoveSingle->result.get());
             if (operandInterval->compound->allocatedRegister
                     == resultInterval->compound->allocatedRegister) {
-                std::cout << "        Rewriting pseudoMoveSingle (fuse)" << std::endl;
+                if (verbose)
+                    std::cout << "        Rewriting pseudoMoveSingle (fuse)" << std::endl;
                 auto nop = std::make_unique<NopInstruction>();
 
                 pseudoMoveSingle->result.get()->replaceAllUses(pseudoMoveSingle->operand.get());
@@ -887,7 +902,8 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
                 reassociateResult(resultInterval, operandInterval->associatedValue);
                 bb->insertInstruction(it, std::move(nop));
             }else{
-                std::cout << "        Rewriting pseudoMoveSingle (reassociate)" << std::endl;
+                if (verbose)
+                    std::cout << "        Rewriting pseudoMoveSingle (reassociate)" << std::endl;
                 auto move = std::make_unique<MovMRInstruction>(pseudoMoveSingle->operand.get());
                 auto moveResult = pseudoMoveSingle->result.reset();
                 pseudoMoveSingle->operand = nullptr;
@@ -908,7 +924,8 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             // - The resulting graph only consists of paths and cycles
             //   (as every register has in-degree at most 1).
             // - Emit those paths in cycles.
-            std::cout << "        Rewriting pseudoMoveMultiple" << std::endl;
+            if (verbose)
+                std::cout << "        Rewriting pseudoMoveMultiple" << std::endl;
 
             // TODO: With equivalencePointer, multiple LiveIntervals might share the same
             //       register. Thus, we cannot identify MoveChains by their register alone.
@@ -965,8 +982,9 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
             auto emitMoveToChain = [&] (MoveChain *targetChain) {
                 // TODO: This generates duplicate moves.
                 //       Introduce a VirtualAlias instruction to alias all sources/results.
-                std::cout << "        There are " << targetChain->indicesOfTarget.size()
-                        << " moves to target register " << chainRegister(targetChain) << std::endl;
+                if (verbose)
+                    std::cout << "        There are " << targetChain->indicesOfTarget.size()
+                            << " moves to target register " << chainRegister(targetChain) << std::endl;
                 for (int index : targetChain->indicesOfTarget) {
                     auto srcChain = targetChain->uniqueSource;
                     assert(!targetChain->didMoveToThisTarget);
