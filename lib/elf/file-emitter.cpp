@@ -63,6 +63,14 @@ void FileEmitterImpl::run() {
     encodeHalf(ehdr, _elf->stringTableFragment->designatedIndex.value()); // e_shstrndx
 
     for (auto fragment : _elf->fragments()) {
+        // Make sure that sections are at least 8-byte aligned.
+        // TODO: Support arbitrary alignment.
+        while(buffer.size() & size_t(7))
+            buffer.push_back(0);
+
+        // Make sure that the fragment ends up at the correct address.
+        assert(fragment->fileOffset.value() == buffer.size());
+
         if (auto phdrs = hierarchy_cast<PhdrsFragment *>(fragment); phdrs) {
             _emitPhdrs(phdrs);
         } else if (auto shdrs = hierarchy_cast<ShdrsFragment *>(fragment); shdrs) {

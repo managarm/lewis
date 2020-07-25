@@ -128,6 +128,10 @@ void LayoutPassImpl::run() {
         if (fragment->isSection())
             fragment->designatedIndex = sectionIndex++;
 
+        // Make sure that sections are at least 8-byte aligned.
+        // TODO: Support arbitrary alignment.
+        offset = (offset + 7) & ~size_t(7);
+
         // TODO: Perform virtualAddress allocation per segment and not per section.
         // Make sure each segment starts on it's own page.
         address = (address + 0xFFF) & ~size_t{0xFFF};
