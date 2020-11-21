@@ -1,12 +1,12 @@
 # Copyright the lewis authors (AUTHORS.md) 2018
 # SPDX-License-Identifier: MIT
 
-project('lewis', 'cpp',
-	default_options: ['frigg_no_install=true'])
+project('lewis', 'cpp')
 
 add_project_arguments('-std=c++17', language: 'cpp')
 
-frigg_project = subproject('frigg')
+frigg_project = subproject('frigg',
+	default_options: ['frigg_no_install=true'])
 frigg_dep = frigg_project.get_variable('frigg_dep')
 
 incl = include_directories('include')
