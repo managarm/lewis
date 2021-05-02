@@ -5,6 +5,7 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 #include <frg/list.hpp>
 #include <lewis/hierarchy.hpp>
