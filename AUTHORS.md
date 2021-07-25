@@ -7,3 +7,4 @@ Names should be added to this file as one of
 
 Alexander van der Grinten
 Cristian Simón Felipe
+Dennis Bonke
