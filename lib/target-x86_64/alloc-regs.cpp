@@ -1,6 +1,7 @@
 
 #include <cassert>
 #include <iostream>
+#include <optional>
 #include <queue>
 #include <unordered_map>
 #include <frg/interval_tree.hpp>
