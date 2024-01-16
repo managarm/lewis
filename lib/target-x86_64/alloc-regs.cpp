@@ -1102,13 +1102,13 @@ void AllocateRegistersImpl::_establishAllocation(BasicBlock *bb) {
 
     // Generate the function epilogue.
     if (auto ret = hierarchy_cast<RetBranch *>(bb->branch()); ret) {
+        if (frameSpace)
+            bb->insertInstruction(std::make_unique<IncrementStackInstruction>(frameSpace));
         for (int i = 15; i >= 0; i--) {
             if (!(saveMask & (1 << i)))
                 continue;
             bb->insertInstruction(std::make_unique<PopRestoreInstruction>(i));
         }
-        if (frameSpace)
-            bb->insertInstruction(std::make_unique<IncrementStackInstruction>(frameSpace));
     }
 }
 
